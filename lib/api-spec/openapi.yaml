@@ -3,20 +3,30 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Ad Scheduler API - manages advertising campaigns in shopping centers
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: grid
+    description: Main grid view
+  - name: campaigns
+    description: Campaign operations
+  - name: shoppingCenters
+    description: Shopping center operations
+  - name: import
+    description: Excel import operations
+  - name: statistics
+    description: Statistics and KPI
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +34,583 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /grid:
+    get:
+      operationId: getGrid
+      tags: [grid]
+      summary: Get main grid view grouped by city
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            description: "ISO date string YYYY-MM-DD, defaults to today"
+        - name: cities
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+            enum: ["ГМ", "СМ", null]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+            enum: ["Платник", "Не платник", null]
+        - name: showActiveOnly
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+        - name: loadFilter
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["all", "overloaded", "free"]
+            default: "all"
+        - name: searchCampaign
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: searchClient
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Grid data grouped by city
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GridResponse"
+
+  /campaigns:
+    get:
+      operationId: listCampaigns
+      tags: [campaigns]
+      summary: List all campaigns
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: showActiveOnly
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campaign"
+
+  /campaigns/bulk-delete:
+    post:
+      operationId: bulkDeleteCampaigns
+      tags: [campaigns]
+      summary: Delete multiple campaigns
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkDeleteInput"
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /campaigns/{id}:
+    get:
+      operationId: getCampaign
+      tags: [campaigns]
+      summary: Get campaign details with shopping center list
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Campaign detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteCampaign
+      tags: [campaigns]
+      summary: Delete a campaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /shopping-centers:
+    get:
+      operationId: listShoppingCenters
+      tags: [shoppingCenters]
+      summary: List shopping centers
+      parameters:
+        - name: city
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: List of shopping centers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ShoppingCenter"
+
+  /import:
+    post:
+      operationId: importExcel
+      tags: [import]
+      summary: Import campaigns from Excel file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImportFileInput"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+        "400":
+          description: Validation errors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /import-history:
+    get:
+      operationId: listImportHistory
+      tags: [import]
+      summary: List import history
+      responses:
+        "200":
+          description: Import history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ImportHistoryEntry"
+
+  /import-history/{id}/restore:
+    post:
+      operationId: restoreImport
+      tags: [import]
+      summary: Restore data from a specific import history entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Restored successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /statistics:
+    get:
+      operationId: getStatistics
+      tags: [statistics]
+      summary: Get statistics for selected date and filters
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: cities
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Statistics"
+
+  /kpi:
+    get:
+      operationId: getKpi
+      tags: [statistics]
+      summary: Get KPI summary cards
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+        - name: cities
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: KPI summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KpiSummary"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    ShoppingCenter:
+      type: object
+      required: [id, number, city, format]
+      properties:
+        id:
+          type: integer
+        number:
+          type: string
+        address:
+          type: ["string", "null"]
+        city:
+          type: string
+        format:
+          type: string
+          enum: ["ГМ", "СМ"]
+
+    Campaign:
+      type: object
+      required: [id, name, client, duration, status, startDate, endDate]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        client:
+          type: string
+        duration:
+          type: integer
+          description: Duration in seconds
+        status:
+          type: string
+          enum: ["Платник", "Не платник"]
+        startDate:
+          type: string
+          description: ISO date string
+        endDate:
+          type: string
+          description: ISO date string
+
+    CampaignDetail:
+      type: object
+      required: [id, name, client, duration, status, startDate, endDate, shoppingCenters]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        client:
+          type: string
+        duration:
+          type: integer
+        status:
+          type: string
+          enum: ["Платник", "Не платник"]
+        startDate:
+          type: string
+        endDate:
+          type: string
+        shoppingCenters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShoppingCenter"
+
+    GridCampaignCell:
+      type: object
+      required: [id, name, duration, client]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        duration:
+          type: integer
+        client:
+          type: string
+        status:
+          type: string
+          enum: ["Платник", "Не платник"]
+
+    GridShoppingCenterRow:
+      type: object
+      required: [id, number, city, format, totalDuration, campaigns]
+      properties:
+        id:
+          type: integer
+        number:
+          type: string
+        address:
+          type: ["string", "null"]
+        city:
+          type: string
+        format:
+          type: string
+          enum: ["ГМ", "СМ"]
+        totalDuration:
+          type: integer
+        campaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridCampaignCell"
+
+    GridCity:
+      type: object
+      required: [city, campaigns, shoppingCenters]
+      properties:
+        city:
+          type: string
+        campaigns:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridCampaignCell"
+          description: All unique campaigns active in this city on the selected date
+        shoppingCenters:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridShoppingCenterRow"
+
+    GridResponse:
+      type: object
+      required: [date, cities]
+      properties:
+        date:
+          type: string
+        cities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GridCity"
+
+    Statistics:
+      type: object
+      required: [totalDuration, paidDuration, unpaidDuration, gmDuration, smDuration, gmSmDuration, date]
+      properties:
+        date:
+          type: string
+        totalDuration:
+          type: integer
+        paidDuration:
+          type: integer
+        unpaidDuration:
+          type: integer
+        gmDuration:
+          type: integer
+        smDuration:
+          type: integer
+        gmSmDuration:
+          type: integer
+
+    KpiSummary:
+      type: object
+      required: [activeCampaigns, uniqueClients, totalShoppingCenters, totalDuration, avgDurationPerSc, busiestScNumber]
+      properties:
+        activeCampaigns:
+          type: integer
+        uniqueClients:
+          type: integer
+        totalShoppingCenters:
+          type: integer
+        totalDuration:
+          type: integer
+        avgDurationPerSc:
+          type: integer
+        busiestScNumber:
+          type: ["string", "null"]
+
+    ImportFileInput:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+
+    ImportValidationError:
+      type: object
+      required: [row, field, message]
+      properties:
+        row:
+          type: integer
+        field:
+          type: string
+        message:
+          type: string
+
+    ImportResult:
+      type: object
+      required: [success, importedCampaigns, importedPlacements, errors]
+      properties:
+        success:
+          type: boolean
+        importedCampaigns:
+          type: integer
+        importedPlacements:
+          type: integer
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportValidationError"
+        historyId:
+          type: ["integer", "null"]
+
+    ImportHistoryEntry:
+      type: object
+      required: [id, importedAt, campaignCount, placementCount]
+      properties:
+        id:
+          type: integer
+        importedAt:
+          type: string
+        campaignCount:
+          type: integer
+        placementCount:
+          type: integer
+        filename:
+          type: ["string", "null"]
+
+    RestoreResult:
+      type: object
+      required: [success, restoredCampaigns, restoredPlacements]
+      properties:
+        success:
+          type: boolean
+        restoredCampaigns:
+          type: integer
+        restoredPlacements:
+          type: integer
+
+    BulkDeleteInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+
+    DeleteResult:
+      type: object
+      required: [success, deleted]
+      properties:
+        success:
+          type: boolean
+        deleted:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
