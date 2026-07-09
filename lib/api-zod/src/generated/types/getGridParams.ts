@@ -5,8 +5,8 @@
  * Ad Scheduler API - manages advertising campaigns in shopping centers
  * OpenAPI spec version: 0.1.0
  */
+import type { GetGridCampaignPhase } from './getGridCampaignPhase';
 import type { GetGridFormat } from './getGridFormat';
-import type { GetGridLoadFilter } from './getGridLoadFilter';
 import type { GetGridStatus } from './getGridStatus';
 
 export type GetGridParams = {
@@ -23,8 +23,7 @@ format?: GetGridFormat;
  * @nullable
  */
 status?: GetGridStatus;
-showActiveOnly?: boolean;
-loadFilter?: GetGridLoadFilter;
+campaignPhase?: GetGridCampaignPhase;
 /**
  * @nullable
  */

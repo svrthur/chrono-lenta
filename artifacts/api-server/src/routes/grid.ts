@@ -17,19 +17,22 @@ router.get("/grid", async (req, res): Promise<void> => {
     cities,
     format,
     status,
-    showActiveOnly = true,
-    loadFilter = "all",
+    campaignPhase = "active",
     searchCampaign,
     searchClient,
   } = parsed.data;
 
   const today = date ?? new Date().toISOString().slice(0, 10);
 
-  // Build campaign filter conditions
+  // Build campaign filter conditions based on phase
   const campaignConditions = [];
-  if (showActiveOnly) {
+  if (campaignPhase === "active") {
     campaignConditions.push(lte(campaignsTable.startDate, today));
     campaignConditions.push(gte(campaignsTable.endDate, today));
+  } else if (campaignPhase === "planned") {
+    campaignConditions.push(gte(campaignsTable.startDate, today));
+  } else if (campaignPhase === "finished") {
+    campaignConditions.push(lte(campaignsTable.endDate, today));
   }
 
   // Fetch active campaigns (filtered by date)
@@ -170,10 +173,6 @@ router.get("/grid", async (req, res): Promise<void> => {
     }));
 
     const totalDuration = campaignList.reduce((s, c) => s + c.duration, 0);
-
-    // Apply load filter
-    if (loadFilter === "overloaded" && totalDuration < 300) continue;
-    if (loadFilter === "free" && totalDuration >= 180) continue;
 
     // Add to city campaigns set
     for (const [id, c] of campaignsForSc) {

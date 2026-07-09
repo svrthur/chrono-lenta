@@ -194,8 +194,7 @@ format?: GetGridFormat;
  * @nullable
  */
 status?: GetGridStatus;
-showActiveOnly?: boolean;
-loadFilter?: GetGridLoadFilter;
+campaignPhase?: GetGridCampaignPhase;
 /**
  * @nullable
  */
@@ -222,13 +221,14 @@ export const GetGridStatus = {
   Не_платник: 'Не платник',
 } as const;
 
-export type GetGridLoadFilter = typeof GetGridLoadFilter[keyof typeof GetGridLoadFilter];
+export type GetGridCampaignPhase = typeof GetGridCampaignPhase[keyof typeof GetGridCampaignPhase];
 
 
-export const GetGridLoadFilter = {
+export const GetGridCampaignPhase = {
   all: 'all',
-  overloaded: 'overloaded',
-  free: 'free',
+  planned: 'planned',
+  active: 'active',
+  finished: 'finished',
 } as const;
 
 export type ListCampaignsParams = {

@@ -6,11 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GetGridLoadFilter = typeof GetGridLoadFilter[keyof typeof GetGridLoadFilter];
+export type GetGridCampaignPhase = typeof GetGridCampaignPhase[keyof typeof GetGridCampaignPhase];
 
 
-export const GetGridLoadFilter = {
+export const GetGridCampaignPhase = {
   all: 'all',
-  overloaded: 'overloaded',
-  free: 'free',
+  planned: 'planned',
+  active: 'active',
+  finished: 'finished',
 } as const;

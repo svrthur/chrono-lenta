@@ -68,19 +68,13 @@ paths:
           schema:
             type: ["string", "null"]
             enum: ["Платник", "Не платник", null]
-        - name: showActiveOnly
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: true
-        - name: loadFilter
+        - name: campaignPhase
           in: query
           required: false
           schema:
             type: string
-            enum: ["all", "overloaded", "free"]
-            default: "all"
+            enum: ["all", "planned", "active", "finished"]
+            default: "active"
         - name: searchCampaign
           in: query
           required: false

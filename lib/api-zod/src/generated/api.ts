@@ -19,16 +19,14 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary Get main grid view grouped by city
  */
-export const getGridQueryShowActiveOnlyDefault = true;
-export const getGridQueryLoadFilterDefault = `all`;
+export const getGridQueryCampaignPhaseDefault = `active`;
 
 export const GetGridQueryParams = zod.object({
   "date": zod.coerce.string().optional(),
   "cities": zod.array(zod.coerce.string()).optional(),
   "format": zod.union([zod.literal('ГМ'),zod.literal('СМ'),zod.literal(null)]).nullish(),
   "status": zod.union([zod.literal('Платник'),zod.literal('Не платник'),zod.literal(null)]).nullish(),
-  "showActiveOnly": zod.coerce.boolean().default(getGridQueryShowActiveOnlyDefault),
-  "loadFilter": zod.enum(['all', 'overloaded', 'free']).default(getGridQueryLoadFilterDefault),
+  "campaignPhase": zod.enum(['all', 'planned', 'active', 'finished']).default(getGridQueryCampaignPhaseDefault),
   "searchCampaign": zod.coerce.string().nullish(),
   "searchClient": zod.coerce.string().nullish()
 })

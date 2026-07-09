@@ -1,21 +1,21 @@
 import { create } from "zustand"
 
+export type CampaignPhase = "all" | "planned" | "active" | "finished"
+
 type FilterState = {
   date: string
   cities: string[]
   format: "ГМ" | "СМ" | null
   status: "Платник" | "Не платник" | null
-  showActiveOnly: boolean
-  loadFilter: "all" | "overloaded" | "free"
+  campaignPhase: CampaignPhase
   searchCampaign: string
   searchClient: string
-  
+
   setDate: (date: string) => void
   setCities: (cities: string[]) => void
   setFormat: (format: "ГМ" | "СМ" | null) => void
   setStatus: (status: "Платник" | "Не платник" | null) => void
-  setShowActiveOnly: (show: boolean) => void
-  setLoadFilter: (filter: "all" | "overloaded" | "free") => void
+  setCampaignPhase: (phase: CampaignPhase) => void
   setSearchCampaign: (search: string) => void
   setSearchClient: (search: string) => void
   reset: () => void
@@ -26,8 +26,7 @@ export const useFilterStore = create<FilterState>((set) => ({
   cities: [],
   format: null,
   status: null,
-  showActiveOnly: true,
-  loadFilter: "all",
+  campaignPhase: "active",
   searchCampaign: "",
   searchClient: "",
 
@@ -35,8 +34,7 @@ export const useFilterStore = create<FilterState>((set) => ({
   setCities: (cities) => set({ cities }),
   setFormat: (format) => set({ format }),
   setStatus: (status) => set({ status }),
-  setShowActiveOnly: (showActiveOnly) => set({ showActiveOnly }),
-  setLoadFilter: (loadFilter) => set({ loadFilter }),
+  setCampaignPhase: (campaignPhase) => set({ campaignPhase }),
   setSearchCampaign: (searchCampaign) => set({ searchCampaign }),
   setSearchClient: (searchClient) => set({ searchClient }),
   reset: () => set({
@@ -44,8 +42,7 @@ export const useFilterStore = create<FilterState>((set) => ({
     cities: [],
     format: null,
     status: null,
-    showActiveOnly: true,
-    loadFilter: "all",
+    campaignPhase: "active",
     searchCampaign: "",
     searchClient: "",
   })

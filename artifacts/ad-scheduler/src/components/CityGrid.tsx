@@ -16,19 +16,18 @@ export function CityGrid({ onSelectCampaigns, selectedCampaigns, onCampaignClick
   
   const { data: gridData, isLoading } = useGetGrid({
     date: filters.date,
-    cities: filters.cities,
-    format: filters.format,
-    status: filters.status,
-    showActiveOnly: filters.showActiveOnly,
-    loadFilter: filters.loadFilter as any,
-    searchCampaign: filters.searchCampaign,
-    searchClient: filters.searchClient,
+    ...(filters.cities.length > 0 ? { cities: filters.cities } : {}),
+    ...(filters.format ? { format: filters.format } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    campaignPhase: filters.campaignPhase as any,
+    ...(filters.searchCampaign ? { searchCampaign: filters.searchCampaign } : {}),
+    ...(filters.searchClient ? { searchClient: filters.searchClient } : {}),
   }, {
     query: {
       queryKey: [
-        "/api/grid", 
-        filters.date, filters.cities, filters.format, filters.status, 
-        filters.showActiveOnly, filters.loadFilter, filters.searchCampaign, filters.searchClient
+        "/api/grid",
+        filters.date, filters.cities, filters.format, filters.status,
+        filters.campaignPhase, filters.searchCampaign, filters.searchClient
       ]
     }
   })

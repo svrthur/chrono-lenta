@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { Checkbox } from "@/components/ui/checkbox"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
@@ -179,27 +178,17 @@ export function FilterBar() {
             onChange={(e) => filters.setSearchClient(e.target.value)}
           />
 
-          <Select value={filters.loadFilter} onValueChange={(v) => filters.setLoadFilter(v as any)}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Фильтр загрузки" />
+          <Select value={filters.campaignPhase} onValueChange={(v) => filters.setCampaignPhase(v as any)}>
+            <SelectTrigger className="w-[190px]">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Все ТК</SelectItem>
-              <SelectItem value="overloaded">Только перегруженные</SelectItem>
-              <SelectItem value="free">Только свободные</SelectItem>
+              <SelectItem value="all">Все кампании</SelectItem>
+              <SelectItem value="planned">Запланировано</SelectItem>
+              <SelectItem value="active">Опубликовано</SelectItem>
+              <SelectItem value="finished">Завершено</SelectItem>
             </SelectContent>
           </Select>
-
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="activeOnly" 
-              checked={filters.showActiveOnly} 
-              onCheckedChange={(c) => filters.setShowActiveOnly(!!c)} 
-            />
-            <label htmlFor="activeOnly" className="text-sm font-medium leading-none cursor-pointer">
-              Только активные кампании
-            </label>
-          </div>
 
         </div>
       </div>
