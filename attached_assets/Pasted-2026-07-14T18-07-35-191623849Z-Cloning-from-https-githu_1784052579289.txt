@@ -1,0 +1,27 @@
+2026-07-14T18:07:35.191623849Z ==> Cloning from https://github.com/svrthur/chrono-lenta
+2026-07-14T18:07:36.468593686Z ==> Checking out commit 9919df134083c6eea4a47532b591325207ebc441 in branch main
+2026-07-14T18:07:38.287625201Z ==> Installing dependencies with pnpm...
+2026-07-14T18:07:38.446150039Z ==> Using Node.js version 24.14.1 (default)
+2026-07-14T18:07:38.446160999Z ==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+2026-07-14T18:07:52.265286264Z ==> Running build command 'npx --yes pnpm@10 install && npx --yes pnpm@10 --filter @workspace/ad-scheduler run build'...
+2026-07-14T18:08:03.383192902Z 
+2026-07-14T18:08:03.383236403Z > @workspace/ad-scheduler@0.0.0 build /opt/render/project/src/artifacts/ad-scheduler
+2026-07-14T18:08:03.383247623Z > vite build --config vite.config.ts
+2026-07-14T18:08:03.383252923Z 
+2026-07-14T18:08:03.811777785Z failed to load config from /opt/render/project/src/artifacts/ad-scheduler/vite.config.ts
+2026-07-14T18:08:03.816667241Z error during build:
+2026-07-14T18:08:03.816690241Z Error: BASE_PATH environment variable is required but was not provided.
+2026-07-14T18:08:03.816697711Z     at file:///opt/render/project/src/artifacts/ad-scheduler/node_modules/.vite-temp/vite.config.ts.timestamp-1784052483679-43a9b95403f02.mjs:20:9
+2026-07-14T18:08:03.816703732Z     at ModuleJob.run (node:internal/modules/esm/module_job:430:25)
+2026-07-14T18:08:03.816710202Z     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)
+2026-07-14T18:08:03.816716892Z     at async loadConfigFromBundledFile (file:///opt/render/project/src/node_modules/.pnpm/vite@7.3.6_@types+node@25.9.4_jiti@2.7.0_lightningcss@1.32.0_tsx@4.23.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/config.js:35996:12)
+2026-07-14T18:08:03.816723182Z     at async bundleAndLoadConfigFile (file:///opt/render/project/src/node_modules/.pnpm/vite@7.3.6_@types+node@25.9.4_jiti@2.7.0_lightningcss@1.32.0_tsx@4.23.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/config.js:35884:17)
+2026-07-14T18:08:03.816729632Z     at async loadConfigFromFile (file:///opt/render/project/src/node_modules/.pnpm/vite@7.3.6_@types+node@25.9.4_jiti@2.7.0_lightningcss@1.32.0_tsx@4.23.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/config.js:35851:42)
+2026-07-14T18:08:03.816735762Z     at async resolveConfig (file:///opt/render/project/src/node_modules/.pnpm/vite@7.3.6_@types+node@25.9.4_jiti@2.7.0_lightningcss@1.32.0_tsx@4.23.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/config.js:35500:22)
+2026-07-14T18:08:03.816741092Z     at async createBuilder (file:///opt/render/project/src/node_modules/.pnpm/vite@7.3.6_@types+node@25.9.4_jiti@2.7.0_lightningcss@1.32.0_tsx@4.23.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/config.js:33955:19)
+2026-07-14T18:08:03.816746932Z     at async CAC.<anonymous> (file:///opt/render/project/src/node_modules/.pnpm/vite@7.3.6_@types+node@25.9.4_jiti@2.7.0_lightningcss@1.32.0_tsx@4.23.0_yaml@2.9.0/node_modules/vite/dist/node/cli.js:629:10)
+2026-07-14T18:08:03.873426864Z /opt/render/project/src/artifacts/ad-scheduler:
+2026-07-14T18:08:03.873458344Z  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/ad-scheduler@0.0.0 build: `vite build --config vite.config.ts`
+2026-07-14T18:08:03.873502305Z Exit status 1
+2026-07-14T18:08:04.030593875Z ==> Build failed 😞
+2026-07-14T18:08:04.030620856Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
