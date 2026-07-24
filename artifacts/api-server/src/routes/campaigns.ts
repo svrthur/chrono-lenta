@@ -6,6 +6,7 @@ import {
   GetCampaignParams,
   DeleteCampaignParams,
   BulkDeleteCampaignsBody,
+  CreateCampaignBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -38,6 +39,60 @@ router.get("/campaigns", async (req, res): Promise<void> => {
   }
 
   res.json(rows);
+});
+
+router.post("/campaigns", async (req, res): Promise<void> => {
+  const parsed = CreateCampaignBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers } = parsed.data;
+
+  if (startDate > endDate) {
+    res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
+    return;
+  }
+
+  // Resolve SC numbers to IDs, create placeholders for unknown ones
+  const existingSCs = await db.select().from(shoppingCentersTable);
+  const scByNumber = new Map(existingSCs.map((sc) => [sc.number, sc.id]));
+
+  const unknownNumbers = shoppingCenterNumbers.filter((n) => !scByNumber.has(n));
+  if (unknownNumbers.length > 0) {
+    const inserted = await db
+      .insert(shoppingCentersTable)
+      .values(unknownNumbers.map((n) => ({ number: n, city: "Неизвестный", format: "ГМ" as const, address: null })))
+      .onConflictDoNothing()
+      .returning();
+    for (const sc of inserted) scByNumber.set(sc.number, sc.id);
+  }
+
+  const [campaign] = await db
+    .insert(campaignsTable)
+    .values({ name, startDate, endDate, client, status, duration })
+    .returning();
+
+  if (shoppingCenterNumbers.length > 0) {
+    const placements = shoppingCenterNumbers
+      .filter((n) => scByNumber.has(n))
+      .map((n) => ({ campaignId: campaign.id, shoppingCenterId: scByNumber.get(n)! }));
+    if (placements.length > 0) {
+      await db.insert(campaignPlacementsTable).values(placements).onConflictDoNothing();
+    }
+  }
+
+  const placementRows = await db
+    .select({ sc: shoppingCentersTable })
+    .from(campaignPlacementsTable)
+    .innerJoin(shoppingCentersTable, eq(campaignPlacementsTable.shoppingCenterId, shoppingCentersTable.id))
+    .where(eq(campaignPlacementsTable.campaignId, campaign.id));
+
+  const { broadcastDataUpdated } = await import("../lib/sse.js");
+  broadcastDataUpdated();
+
+  res.status(201).json({ ...campaign, shoppingCenters: placementRows.map((p) => p.sc) });
 });
 
 router.post("/campaigns/bulk-delete", async (req, res): Promise<void> => {

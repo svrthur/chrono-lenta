@@ -129,6 +129,30 @@ paths:
                 items:
                   $ref: "#/components/schemas/Campaign"
 
+    post:
+      operationId: createCampaign
+      tags: [campaigns]
+      summary: Create a new campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCampaignInput"
+      responses:
+        "201":
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignDetail"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /campaigns/bulk-delete:
     post:
       operationId: bulkDeleteCampaigns
@@ -583,6 +607,32 @@ components:
           type: integer
         restoredPlacements:
           type: integer
+
+    CreateCampaignInput:
+      type: object
+      required: [name, startDate, endDate, client, status, duration, shoppingCenterNumbers]
+      properties:
+        name:
+          type: string
+        startDate:
+          type: string
+          description: ISO date string YYYY-MM-DD
+        endDate:
+          type: string
+          description: ISO date string YYYY-MM-DD
+        client:
+          type: string
+        status:
+          type: string
+          enum: ["Платник", "Не платник"]
+        duration:
+          type: integer
+          description: Duration in seconds
+        shoppingCenterNumbers:
+          type: array
+          items:
+            type: string
+          description: List of shopping center numbers
 
     BulkDeleteInput:
       type: object

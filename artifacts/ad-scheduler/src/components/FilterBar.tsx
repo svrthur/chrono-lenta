@@ -1,4 +1,4 @@
-import React, { useRef } from "react"
+import React from "react"
 import { useFilterStore } from "@/store/filters"
 import { CITIES } from "@/lib/constants"
 import { Input } from "@/components/ui/input"
@@ -9,69 +9,36 @@ import { Calendar } from "@/components/ui/calendar"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, UploadIcon, RotateCcwIcon, HistoryIcon } from "lucide-react"
-import { useImportExcel, useListImportHistory, useRestoreImport } from "@workspace/api-client-react"
+import { CalendarIcon, PlusIcon, RotateCcwIcon, HistoryIcon } from "lucide-react"
+import { useListImportHistory, useRestoreImport } from "@workspace/api-client-react"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { ImportHistoryDialog } from "./ImportHistoryDialog"
+import { AddCampaignDialog } from "./AddCampaignDialog"
 import { cn } from "@/lib/utils"
 
 export function FilterBar() {
   const filters = useFilterStore()
   const { toast } = useToast()
   const queryClient = useQueryClient()
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [historyOpen, setHistoryOpen] = React.useState(false)
+  const [addOpen, setAddOpen] = React.useState(false)
 
-  const importExcel = useImportExcel()
   const restoreImport = useRestoreImport()
   const { data: history } = useListImportHistory()
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    try {
-      const res = await importExcel.mutateAsync({ data: { file } })
-      if (res.success) {
-        toast({
-          title: "Успешный импорт",
-          description: `Загружено кампаний: ${res.importedCampaigns}, размещений: ${res.importedPlacements}`,
-          variant: "success",
-        })
-        queryClient.invalidateQueries()
-      } else {
-        toast({
-          title: "Ошибка валидации",
-          description: `Ошибок: ${res.errors.length}. Первые: ${res.errors.slice(0, 3).map(e => e.message).join(", ")}`,
-          variant: "destructive",
-        })
-      }
-    } catch (err: any) {
-      toast({
-        title: "Ошибка загрузки",
-        description: err.message || "Неизвестная ошибка",
-        variant: "destructive",
-      })
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ""
-      }
-    }
-  }
 
   const handleUndoLast = async () => {
     if (!history || history.length === 0) {
       toast({ title: "Нет истории для отмены" })
       return
     }
-    const lastImport = history[0] // Assuming sorted by date desc
+    const lastImport = history[0]
     try {
       const res = await restoreImport.mutateAsync({ id: lastImport.id })
       if (res.success) {
         toast({
-          title: "Загрузка отменена",
+          title: "Отменено",
           description: `Восстановлено кампаний: ${res.restoredCampaigns}`,
           variant: "success",
         })
@@ -90,25 +57,18 @@ export function FilterBar() {
     <div className="sticky top-0 z-40 w-full bg-card border-b shadow-sm">
       <div className="flex flex-col p-4 gap-4 max-w-[1920px] mx-auto">
         <div className="flex flex-wrap items-center gap-3">
-          
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept=".xlsx,.xls" 
-            onChange={handleFileChange}
-          />
-          <Button onClick={() => fileInputRef.current?.click()} disabled={importExcel.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            <UploadIcon className="w-4 h-4 mr-2" />
-            {importExcel.isPending ? "Загрузка..." : "Загрузить Excel"}
+
+          <Button onClick={() => setAddOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            <PlusIcon className="w-4 h-4 mr-2" />
+            Добавить кампанию
           </Button>
-          
-          <Button variant="outline" onClick={handleUndoLast} disabled={restoreImport.isPending || !history?.length} title="Отменить последнюю загрузку">
+
+          <Button variant="outline" onClick={handleUndoLast} disabled={restoreImport.isPending || !history?.length} title="Отменить последнее добавление">
             <RotateCcwIcon className="w-4 h-4 mr-2" />
             Отменить последнюю
           </Button>
 
-          <Button variant="ghost" onClick={() => setHistoryOpen(true)} title="История загрузок">
+          <Button variant="ghost" onClick={() => setHistoryOpen(true)} title="История">
             <HistoryIcon className="w-4 h-4" />
           </Button>
           
@@ -194,6 +154,7 @@ export function FilterBar() {
       </div>
       
       <ImportHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
+      <AddCampaignDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>
   )
 }

@@ -86,6 +86,33 @@ export const ListCampaignsResponse = zod.array(ListCampaignsResponseItem)
 /**
  * @summary Delete multiple campaigns
  */
+export const CreateCampaignBody = zod.object({
+  "name": zod.string(),
+  "startDate": zod.string(),
+  "endDate": zod.string(),
+  "client": zod.string(),
+  "status": zod.enum(['Платник', 'Не платник']),
+  "duration": zod.number().int(),
+  "shoppingCenterNumbers": zod.array(zod.string()),
+})
+
+export const CreateCampaignResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "client": zod.string(),
+  "duration": zod.number(),
+  "status": zod.enum(['Платник', 'Не платник']),
+  "startDate": zod.string(),
+  "endDate": zod.string(),
+  "shoppingCenters": zod.array(zod.object({
+    "id": zod.number(),
+    "number": zod.string(),
+    "city": zod.string(),
+    "format": zod.enum(['ГМ', 'СМ']),
+    "address": zod.string().nullable(),
+  })),
+})
+
 export const BulkDeleteCampaignsBody = zod.object({
   "ids": zod.array(zod.number())
 })
