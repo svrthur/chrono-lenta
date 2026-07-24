@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "BoSbebbDN9jOvB3Trd0-I"
+uri = "file://attached_assets/sample_import.xlsx"
+type = "table"
+title = "Образец Excel для импорта"
