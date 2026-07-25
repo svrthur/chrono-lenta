@@ -9,49 +9,14 @@ import { Calendar } from "@/components/ui/calendar"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, PlusIcon, RotateCcwIcon, HistoryIcon } from "lucide-react"
-import { useListImportHistory, useRestoreImport } from "@workspace/api-client-react"
-import { useToast } from "@/hooks/use-toast"
-import { useQueryClient } from "@tanstack/react-query"
-import { ImportHistoryDialog } from "./ImportHistoryDialog"
+import { CalendarIcon, PlusIcon } from "lucide-react"
 import { AddCampaignDialog } from "./AddCampaignDialog"
 import { cn } from "@/lib/utils"
 
 export function FilterBar() {
   const filters = useFilterStore()
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
 
-  const [historyOpen, setHistoryOpen] = React.useState(false)
   const [addOpen, setAddOpen] = React.useState(false)
-
-  const restoreImport = useRestoreImport()
-  const { data: history } = useListImportHistory()
-
-  const handleUndoLast = async () => {
-    if (!history || history.length === 0) {
-      toast({ title: "Нет истории для отмены" })
-      return
-    }
-    const lastImport = history[0]
-    try {
-      const res = await restoreImport.mutateAsync({ id: lastImport.id })
-      if (res.success) {
-        toast({
-          title: "Отменено",
-          description: `Восстановлено кампаний: ${res.restoredCampaigns}`,
-          variant: "success",
-        })
-        queryClient.invalidateQueries()
-      }
-    } catch (err: any) {
-      toast({
-        title: "Ошибка отмены",
-        description: err.message || "Неизвестная ошибка",
-        variant: "destructive",
-      })
-    }
-  }
 
   return (
     <div className="sticky top-0 z-40 w-full bg-card border-b shadow-sm">
@@ -63,15 +28,6 @@ export function FilterBar() {
             Добавить кампанию
           </Button>
 
-          <Button variant="outline" onClick={handleUndoLast} disabled={restoreImport.isPending || !history?.length} title="Отменить последнее добавление">
-            <RotateCcwIcon className="w-4 h-4 mr-2" />
-            Отменить последнюю
-          </Button>
-
-          <Button variant="ghost" onClick={() => setHistoryOpen(true)} title="История">
-            <HistoryIcon className="w-4 h-4" />
-          </Button>
-          
           <div className="h-6 w-px bg-border mx-1 hidden sm:block" />
 
           <Popover>
@@ -153,7 +109,6 @@ export function FilterBar() {
         </div>
       </div>
       
-      <ImportHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
       <AddCampaignDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>
   )
