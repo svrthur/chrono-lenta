@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies (workspace)
         run: pnpm install --workspace-root
 
+      - name: Install ad-scheduler deps (package-level)
+        run: pnpm --filter @workspace/ad-scheduler install --workspace-root || pnpm --filter @workspace/ad-scheduler install
+
       - name: Build ad-scheduler
         run: pnpm --filter @workspace/ad-scheduler run build --workspace-root
 
