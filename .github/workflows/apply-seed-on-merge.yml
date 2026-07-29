@@ -1,0 +1,42 @@
+name: Apply DB seeds on main
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'lib/db/seeds/**'
+
+jobs:
+  apply-seed:
+    name: Apply SQL seed
+    runs-on: ubuntu-latest
+    # Require DATABASE_URL secret to be present
+    if: ${{ secrets.DATABASE_URL != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run seed SQL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Applying seed: lib/db/seeds/*.sql"
+          for f in lib/db/seeds/*.sql; do
+            echo "--- Running $f ---"
+            psql "$DATABASE_URL" -f "$f"
+          done
+
+  notify-missing-secret:
+    name: Notify missing DATABASE_URL secret
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DATABASE_URL == '' }}
+    steps:
+      - name: Abort and inform
+        run: |
+          echo "DATABASE_URL secret is not set. Seed was NOT applied."
+          echo "Please add the DATABASE_URL secret in repository settings to enable automatic seed execution."
+          exit 1
