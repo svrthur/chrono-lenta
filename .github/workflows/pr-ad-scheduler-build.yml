@@ -27,11 +27,11 @@ jobs:
       - name: Install dependencies (workspace)
         run: pnpm install --workspace-root
 
-      - name: Install ad-scheduler deps (package-level)
-        run: pnpm --filter @workspace/ad-scheduler install --workspace-root || pnpm --filter @workspace/ad-scheduler install
-
-      - name: Build ad-scheduler
-        run: pnpm --filter @workspace/ad-scheduler run build --workspace-root
+      - name: Build ad-scheduler (package dir)
+        run: |
+          cd artifacts/ad-scheduler
+          pnpm install
+          pnpm run build
 
       - name: Upload built dist
         uses: actions/upload-artifact@v4
