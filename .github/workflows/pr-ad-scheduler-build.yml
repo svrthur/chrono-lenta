@@ -1,0 +1,40 @@
+name: PR — Build ad-scheduler
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-ad-scheduler:
+    name: Build ad-scheduler
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Prepare pnpm 10
+        run: corepack prepare pnpm@10.x --activate
+
+      - name: Install dependencies (workspace)
+        run: pnpm install --workspace-root
+
+      - name: Build ad-scheduler (package dir)
+        run: |
+          cd artifacts/ad-scheduler
+          pnpm install
+          pnpm run build
+
+      - name: Upload built dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: ad-scheduler-dist
+          path: artifacts/ad-scheduler/dist

@@ -83,48 +83,75 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
         <table className="w-full text-sm border-collapse min-w-max">
           <thead className="bg-muted/40 sticky top-0 z-20">
             <tr>
-              <th className="p-3 text-left font-semibold border-b border-r bg-muted/40 sticky left-0 z-30 min-w-[200px]">
-                ТК
+              <th className="p-3 text-left font-semibold border-b border-r bg-muted/40 sticky left-0 z-30 min-w-[260px]">
+                Кампании
               </th>
-              {city.campaigns.map(camp => (
-                <th key={camp.id} className="p-2 border-b border-r text-center group w-[120px] min-w-[120px] max-w-[160px]">
-                  <div className="flex flex-col items-center justify-between h-full gap-2">
+              {city.shoppingCenters.map(sc => (
+                <th key={sc.id} className="p-2 border-b border-r text-center group w-[120px] min-w-[120px] max-w-[160px]">
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="font-bold">ТК №{sc.number}</span>
+                    {sc.address && <span className="text-xs text-muted-foreground truncate" title={sc.address}>{sc.address}</span>}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* Precompute map of shopping center campaigns for quick lookup */}
+            {city.campaigns.map((camp) => (
+              <tr key={camp.id} className="border-b transition-colors group">
+                <td className="p-3 border-r font-medium sticky left-0 z-10 bg-inherit shadow-[4px_0_6px_-2px_rgba(0,0,0,0.05)]">
+                  <div className="flex flex-col">
                     <div 
-                      className="text-xs font-semibold cursor-pointer hover:text-primary transition-colors line-clamp-3 w-full"
+                      className="text-sm font-semibold cursor-pointer hover:text-primary transition-colors line-clamp-2"
                       onClick={() => onCampaignClick(camp.id)}
                       title={camp.name}
                     >
                       {camp.name}
                     </div>
-                    <div className="flex items-center gap-2 mt-auto">
-                      <span className="text-[10px] text-muted-foreground bg-background px-1.5 py-0.5 rounded">
-                        {camp.duration}с
-                      </span>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-[10px] text-muted-foreground bg-background px-1.5 py-0.5 rounded">{camp.duration}с</span>
                       <Checkbox 
                         checked={selectedCampaigns.has(camp.id)}
                         onClick={(e) => toggleCampaign(camp.id, e as any)}
                       />
                     </div>
                   </div>
-                </th>
-              ))}
-              <th className="p-3 border-b text-center font-bold bg-muted/40 sticky right-0 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">
-                Общий хрон.
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {city.shoppingCenters.map((row) => (
-              <Row 
-                key={row.id} 
-                row={row} 
-                allCampaigns={city.campaigns} 
-                onCampaignClick={onCampaignClick}
-              />
+                </td>
+
+                {city.shoppingCenters.map((sc) => {
+                  const hasCamp = sc.campaigns.some(c => c.id === camp.id)
+                  return (
+                    <td key={sc.id} className="border-r p-0 text-center relative">
+                      {hasCamp ? (
+                        <div 
+                          className="w-full h-full min-h-[48px] flex items-center justify-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                          onClick={() => onCampaignClick(camp.id)}
+                        >
+                          <div className="w-4 h-4 rounded-full bg-primary/80 shadow-sm" title={camp.name} />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full min-h-[48px]" />
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
             ))}
+
+            {/* Общий хрон. — строка, последняя под кампаниями */}
+            <tr className="border-t font-bold bg-muted/10">
+              <td className="p-3 border-r sticky left-0 z-10 bg-inherit">Общий хрон.</td>
+              {city.shoppingCenters.map((sc) => (
+                <td key={sc.id} className="p-3 text-center">
+                  {formatSeconds(sc.totalDuration)}
+                </td>
+              ))}
+            </tr>
+
             {city.shoppingCenters.length === 0 && (
               <tr>
-                <td colSpan={city.campaigns.length + 2} className="p-8 text-center text-muted-foreground">
+                <td colSpan={Math.max(1, city.shoppingCenters.length) + 1} className="p-8 text-center text-muted-foreground">
                   Нет ТК в этом городе с активными кампаниями по выбранным фильтрам
                 </td>
               </tr>
