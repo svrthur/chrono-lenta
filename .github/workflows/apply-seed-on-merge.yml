@@ -20,32 +20,74 @@ jobs:
       - name: Install psql client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-      - name: Diagnostics: psql and DB connectivity (capture logs)
+      - name: Detailed diagnostics and seed runner (capture logs)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set +e
           LOGFILE=/tmp/apply-seed.log
-          echo "Starting diagnostics at $(date)" | tee -a $LOGFILE
-          echo "psql binary: $(which psql || echo 'not found')" | tee -a $LOGFILE
-          psql --version 2>&1 | tee -a $LOGFILE || true
-          echo "Checking lib/db/seeds directory:" | tee -a $LOGFILE
-          ls -la lib/db/seeds 2>&1 | tee -a $LOGFILE || true
-          echo "Attempting simple DB query (SELECT 1). This step will fail if connectivity or credentials are incorrect." | tee -a $LOGFILE
-          psql "$DATABASE_URL" -c "SELECT 1;" 2>&1 | tee -a $LOGFILE || echo "DB connectivity test failed" | tee -a $LOGFILE
-          echo "Diagnostics end at $(date)" | tee -a $LOGFILE
+          echo "=== START DIAGNOSTICS $(date) ===" > $LOGFILE
 
-      - name: Run seed SQL (capture logs)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          LOGFILE=/tmp/apply-seed.log
-          echo "Applying seed: lib/db/seeds/*.sql" | tee -a $LOGFILE
+          echo "[ENVIRONMENT]" | tee -a $LOGFILE
+          echo "Runner: $(uname -a)" | tee -a $LOGFILE
+          echo "User: $(whoami)" | tee -a $LOGFILE
+
+          echo "[APT] Installing postgresql-client and dnsutils (for dig)" | tee -a $LOGFILE
+          sudo apt-get update 2>&1 | tee -a $LOGFILE
+          sudo apt-get install -y postgresql-client dnsutils netcat-openbsd 2>&1 | tee -a $LOGFILE
+
+          echo "[PSQL] which psql:" | tee -a $LOGFILE
+          which psql 2>&1 | tee -a $LOGFILE
+          psql --version 2>&1 | tee -a $LOGFILE || true
+
+          echo "[SEEDS DIRECTORY]" | tee -a $LOGFILE
+          ls -la lib/db/seeds 2>&1 | tee -a $LOGFILE || true
+
+          echo "[PARSE DB HOST/PORT] (will not print credentials)" | tee -a $LOGFILE
+          # extract host[:port] from DATABASE_URL without printing credentials
+          if [ -n "$DATABASE_URL" ]; then
+            proto_and_rest="${DATABASE_URL#*://}"
+            if echo "$proto_and_rest" | grep -q "@"; then
+              hostpart="${proto_and_rest#*@}"
+            else
+              hostpart="$proto_and_rest"
+            fi
+            hostport="${hostpart%%/*}"
+            echo "DB hostport: $hostport" | tee -a $LOGFILE
+            # try DNS resolution
+            echo "[DNS] dig $hostport (host part)" | tee -a $LOGFILE
+            host_only="${hostport%%:*}"
+            dig +short "$host_only" 2>&1 | tee -a $LOGFILE || echo "dig failed" | tee -a $LOGFILE
+          else
+            echo "DATABASE_URL is empty" | tee -a $LOGFILE
+          fi
+
+          echo "[PING/TCP] test connectivity to host:port" | tee -a $LOGFILE
+          if [ -n "$hostport" ]; then
+            host_only="${hostport%%:*}"
+            port_only="${hostport#*:}"
+            if [ "$port_only" = "$host_only" ]; then
+              port_only=5432
+            fi
+            echo "Attempt TCP connect to $host_only:$port_only (timeout 5s)" | tee -a $LOGFILE
+            (echo > /dev/tcp/$host_only/$port_only) >/dev/null 2>&1 && echo "TCP connect succeeded" | tee -a $LOGFILE || echo "TCP connect failed or blocked" | tee -a $LOGFILE
+          fi
+
+          echo "[DB TEST] running simple SELECT 1 via psql (will not echo DATABASE_URL)" | tee -a $LOGFILE
+          # run psql but do not exit on error; capture output
+          psql "$DATABASE_URL" -c "SELECT 1;" 2>&1 | tee -a $LOGFILE || echo "psql SELECT failed" | tee -a $LOGFILE
+
+          echo "[SEED APPLY] executing SQL files" | tee -a $LOGFILE
           for f in lib/db/seeds/*.sql; do
             echo "--- Running $f ---" | tee -a $LOGFILE
-            psql "$DATABASE_URL" -f "$f" 2>&1 | tee -a $LOGFILE || echo "Seed $f failed" | tee -a $LOGFILE
+            psql "$DATABASE_URL" -f "$f" 2>&1 | tee -a $LOGFILE || echo "Seed $f failed (check above)" | tee -a $LOGFILE
           done
 
+          echo "=== END DIAGNOSTICS $(date) ===" | tee -a $LOGFILE
+          set -e
+
       - name: Upload apply-seed logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: apply-seed-logs
