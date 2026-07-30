@@ -113,7 +113,6 @@ jobs:
   notify-missing-secret:
     name: Notify missing DATABASE_URL secret
     runs-on: ubuntu-latest
-    if: ${{ secrets.DATABASE_URL == '' }}
     steps:
       - name: Abort and inform
         run: |
