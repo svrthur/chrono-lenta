@@ -20,6 +20,19 @@ jobs:
       - name: Install psql client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
+      - name: Diagnostics: psql and DB connectivity
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "--- Diagnostics start ---"
+          echo "psql binary: $(which psql || echo 'not found')"
+          psql --version || true
+          echo "Checking lib/db/seeds directory:"
+          ls -la lib/db/seeds || true
+          echo "Attempting simple DB query (SELECT 1). This step will fail if connectivity or credentials are incorrect."
+          psql "$DATABASE_URL" -c "SELECT 1;" || echo "DB connectivity test failed"
+          echo "--- Diagnostics end ---"
+
       - name: Run seed SQL
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
