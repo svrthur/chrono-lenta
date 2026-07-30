@@ -86,6 +86,17 @@ jobs:
           echo "=== END DIAGNOSTICS $(date) ===" | tee -a $LOGFILE
           set -e
 
+      - name: Print apply-seed.log to workflow output (for debugging)
+        if: always()
+        run: |
+          echo "---- BEGIN apply-seed.log ----"
+          if [ -f /tmp/apply-seed.log ]; then
+            sed -n '1,1000p' /tmp/apply-seed.log || true
+          else
+            echo "/tmp/apply-seed.log not found"
+          fi
+          echo "---- END apply-seed.log ----"
+
       - name: Upload apply-seed logs
         if: always()
         uses: actions/upload-artifact@v4
