@@ -10,10 +10,16 @@ jobs:
   apply-seed:
     name: Apply SQL seed
     runs-on: ubuntu-latest
-    # Require DATABASE_URL secret to be present
-    if: ${{ secrets.DATABASE_URL != '' }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
+      - name: Ensure DATABASE_URL secret is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is not set. Aborting." >&2
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@v4
 
