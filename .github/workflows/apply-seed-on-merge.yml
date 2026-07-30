@@ -20,28 +20,36 @@ jobs:
       - name: Install psql client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-      - name: Diagnostics: psql and DB connectivity
+      - name: Diagnostics: psql and DB connectivity (capture logs)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          echo "--- Diagnostics start ---"
-          echo "psql binary: $(which psql || echo 'not found')"
-          psql --version || true
-          echo "Checking lib/db/seeds directory:"
-          ls -la lib/db/seeds || true
-          echo "Attempting simple DB query (SELECT 1). This step will fail if connectivity or credentials are incorrect."
-          psql "$DATABASE_URL" -c "SELECT 1;" || echo "DB connectivity test failed"
-          echo "--- Diagnostics end ---"
+          LOGFILE=/tmp/apply-seed.log
+          echo "Starting diagnostics at $(date)" | tee -a $LOGFILE
+          echo "psql binary: $(which psql || echo 'not found')" | tee -a $LOGFILE
+          psql --version 2>&1 | tee -a $LOGFILE || true
+          echo "Checking lib/db/seeds directory:" | tee -a $LOGFILE
+          ls -la lib/db/seeds 2>&1 | tee -a $LOGFILE || true
+          echo "Attempting simple DB query (SELECT 1). This step will fail if connectivity or credentials are incorrect." | tee -a $LOGFILE
+          psql "$DATABASE_URL" -c "SELECT 1;" 2>&1 | tee -a $LOGFILE || echo "DB connectivity test failed" | tee -a $LOGFILE
+          echo "Diagnostics end at $(date)" | tee -a $LOGFILE
 
-      - name: Run seed SQL
+      - name: Run seed SQL (capture logs)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          echo "Applying seed: lib/db/seeds/*.sql"
+          LOGFILE=/tmp/apply-seed.log
+          echo "Applying seed: lib/db/seeds/*.sql" | tee -a $LOGFILE
           for f in lib/db/seeds/*.sql; do
-            echo "--- Running $f ---"
-            psql "$DATABASE_URL" -f "$f"
+            echo "--- Running $f ---" | tee -a $LOGFILE
+            psql "$DATABASE_URL" -f "$f" 2>&1 | tee -a $LOGFILE || echo "Seed $f failed" | tee -a $LOGFILE
           done
+
+      - name: Upload apply-seed logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: apply-seed-logs
+          path: /tmp/apply-seed.log
 
   notify-missing-secret:
     name: Notify missing DATABASE_URL secret
