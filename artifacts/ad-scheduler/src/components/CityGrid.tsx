@@ -61,6 +61,19 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
   onSelectCampaigns: (ids: number[]) => void,
   onCampaignClick: (id: number) => void
 }) {
+  // Ensure shopping centers are ordered: ГМ (HM) first, then СМ, with numeric sort when possible
+  const scs = [...city.shoppingCenters].sort((a, b) => {
+    if (a.format === b.format) {
+      const na = parseInt(String(a.number).replace(/\D/g, ''), 10);
+      const nb = parseInt(String(b.number).replace(/\D/g, ''), 10);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return String(a.number).localeCompare(String(b.number));
+    }
+    if (a.format === 'ГМ') return -1;
+    if (b.format === 'ГМ') return 1;
+    return String(a.format).localeCompare(String(b.format));
+  });
+
   
   const toggleCampaign = (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -86,7 +99,7 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
               <th className="p-3 text-left font-semibold border-b border-r bg-muted/40 sticky left-0 z-30 min-w-[260px]">
                 Кампании
               </th>
-              {city.shoppingCenters.map(sc => (
+              {scs.map(sc => (
                 <th key={sc.id} className="p-2 border-b border-r text-center group w-[120px] min-w-[120px] max-w-[160px]">
                   <div className="flex flex-col items-center gap-1">
                     <span className="font-bold">ТК №{sc.number}</span>
@@ -119,7 +132,7 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
                   </div>
                 </td>
 
-                {city.shoppingCenters.map((sc) => {
+                {scs.map((sc) => {
                   const hasCamp = sc.campaigns.some(c => c.id === camp.id)
                   return (
                     <td key={sc.id} className="border-r p-0 text-center relative">
@@ -142,7 +155,7 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
             {/* Общий хрон. — строка, последняя под кампаниями */}
             <tr className="border-t font-bold bg-muted/10">
               <td className="p-3 border-r sticky left-0 z-10 bg-inherit">Общий хрон.</td>
-              {city.shoppingCenters.map((sc) => (
+              {scs.map((sc) => (
                 <td key={sc.id} className="p-3 text-center">
                   {formatSeconds(sc.totalDuration)}
                 </td>
