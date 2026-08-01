@@ -40,19 +40,51 @@ export function CityGrid({ onSelectCampaigns, selectedCampaigns, onCampaignClick
     return <div className="p-8 text-center text-muted-foreground">Нет данных по выбранным фильтрам</div>
   }
 
+  // Desired city order and inclusion
+  const desiredOrder = [
+   'Санкт-Петербург', 'Москва', 'Новосибирск', 'Казань', 'Самара', 'Саратов',
+   'Краснодар', 'Красноярск', 'Ростов-на-Дону', 'Уфа', 'Екатеринбург'
+  ];
+
+  const cityMap = new Map(gridData.cities.map(c => [c.city, c]));
+  const orderedCities = desiredOrder.map(name => cityMap.get(name)).filter(Boolean) as typeof gridData.cities;
+
   return (
-    <div className="flex flex-col gap-8 p-4 max-w-[1920px] mx-auto pb-32">
-      {gridData.cities.map((city) => (
-        <CityCard 
-          key={city.city} 
-          city={city} 
-          selectedCampaigns={selectedCampaigns}
-          onSelectCampaigns={onSelectCampaigns}
-          onCampaignClick={onCampaignClick}
-        />
-      ))}
-    </div>
-  )
+   <div className="flex flex-col gap-6 p-3 max-w-[1920px] mx-auto pb-20">
+     <div className="border bg-card rounded-xl shadow-sm overflow-hidden flex flex-col">
+       <div className="p-4 border-b bg-muted/20">
+         <h2 className="text-xl font-bold text-center">ТК</h2>
+       </div>
+
+       <div className="p-4">
+         <div className="grid grid-cols-4 gap-3">
+           {(() => {
+             const allSCs = gridData.cities.flatMap(c => c.shoppingCenters.map(sc => ({ ...sc, city: c.city })));
+             const cityIndex = (name: string) => {
+               const idx = desiredOrder.indexOf(name);
+               return idx === -1 ? desiredOrder.length : idx;
+             }
+             allSCs.sort((a, b) => {
+               const ca = cityIndex(a.city), cb = cityIndex(b.city);
+               if (ca !== cb) return ca - cb;
+               const na = parseInt(String(a.number).replace(/\D/g, ''), 10);
+               const nb = parseInt(String(b.number).replace(/\D/g, ''), 10);
+               if (!isNaN(na) && !isNaN(nb)) return na - nb;
+               return String(a.number).localeCompare(String(b.number));
+             });
+
+             return allSCs.map(sc => (
+               <div key={sc.id} className="p-2 border rounded flex flex-col items-center">
+                 <span className="font-bold">ТК №{sc.number}</span>
+                 <span className="text-xs text-muted-foreground">{sc.city}</span>
+               </div>
+             ));
+           })()}
+         </div>
+       </div>
+     </div>
+   </div>
+ )
 }
 
 function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick }: { 
@@ -93,16 +125,16 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
       </div>
       
       <div className="relative w-full overflow-auto custom-scrollbar">
-        <table className="w-full text-sm border-collapse min-w-max">
+        <table className="w-full text-sm border-collapse min-w-max text-sm">
           <thead className="bg-muted/40 sticky top-0 z-20">
             <tr>
               <th className="p-3 text-left font-semibold border-b border-r bg-muted/40 sticky left-0 z-30 min-w-[260px]">
                 Кампании
               </th>
               {scs.map(sc => (
-                <th key={sc.id} className="p-2 border-b border-r text-center group w-[120px] min-w-[120px] max-w-[160px]">
+                <th key={sc.id} className="p-2 border-b border-r text-center group w-[96px] min-w-[96px] max-w-[140px]">
                   <div className="flex flex-col items-center gap-1">
-                    <span className="font-bold">ТК №{sc.number}</span>
+                    <span className="font-bold text-sm">ТК №{sc.number}</span>
                     {sc.address && <span className="text-xs text-muted-foreground truncate" title={sc.address}>{sc.address}</span>}
                   </div>
                 </th>
