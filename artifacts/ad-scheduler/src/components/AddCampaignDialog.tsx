@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { getApiUrl } from "@/lib/api"
 
-const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40]
+const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45]
 
 interface FormState {
   name: string
@@ -154,12 +154,21 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={form.startDate}
-                    onSelect={(d) => set("startDate", d)}
-                    initialFocus
-                  />
+                  <div className="p-2">
+                    <Calendar
+                      mode="single"
+                      selected={form.startDate}
+                      onSelect={(d) => set("startDate", d)}
+                      initialFocus
+                    />
+                    <div className="mt-2">
+                      <Input
+                        type="date"
+                        value={form.startDate ? (form.startDate.toISOString().slice(0,10)) : ""}
+                        onChange={(e) => set("startDate", e.target.value ? new Date(e.target.value) : undefined)}
+                      />
+                    </div>
+                  </div>
                 </PopoverContent>
               </Popover>
               {errors.startDate && <p className="text-xs text-destructive">{errors.startDate}</p>}
@@ -178,13 +187,22 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={form.endDate}
-                    onSelect={(d) => set("endDate", d)}
-                    initialFocus
-                    disabled={form.startDate ? { before: form.startDate } : undefined}
-                  />
+                  <div className="p-2">
+                    <Calendar
+                      mode="single"
+                      selected={form.endDate}
+                      onSelect={(d) => set("endDate", d)}
+                      initialFocus
+                      disabled={form.startDate ? { before: form.startDate } : undefined}
+                    />
+                    <div className="mt-2">
+                      <Input
+                        type="date"
+                        value={form.endDate ? (form.endDate.toISOString().slice(0,10)) : ""}
+                        onChange={(e) => set("endDate", e.target.value ? new Date(e.target.value) : undefined)}
+                      />
+                    </div>
+                  </div>
                 </PopoverContent>
               </Popover>
               {errors.endDate && <p className="text-xs text-destructive">{errors.endDate}</p>}
