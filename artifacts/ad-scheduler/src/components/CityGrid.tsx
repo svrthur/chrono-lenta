@@ -74,9 +74,8 @@ export function CityGrid({ onSelectCampaigns, selectedCampaigns, onCampaignClick
              });
 
              return allSCs.map(sc => (
-               <div key={sc.id} className="p-2 border rounded flex flex-col items-center">
-                 <span className="font-bold">ТК №{sc.number}</span>
-                 <span className="text-xs text-muted-foreground">{sc.city}</span>
+               <div key={sc.id} className="p-1 border rounded-sm flex flex-col items-center text-sm">
+                 <span className="font-semibold">{sc.number}</span>
                </div>
              ));
            })()}
@@ -134,8 +133,7 @@ function CityCard({ city, selectedCampaigns, onSelectCampaigns, onCampaignClick 
               {scs.map(sc => (
                 <th key={sc.id} className="p-2 border-b border-r text-center group w-[96px] min-w-[96px] max-w-[140px]">
                   <div className="flex flex-col items-center gap-1">
-                    <span className="font-bold text-sm">ТК №{sc.number}</span>
-                    {sc.address && <span className="text-xs text-muted-foreground truncate" title={sc.address}>{sc.address}</span>}
+                    <span className="font-bold text-sm">{sc.number}</span>
                   </div>
                 </th>
               ))}
@@ -223,8 +221,7 @@ function Row({ row, allCampaigns, onCampaignClick }: { row: GridShoppingCenterRo
     <tr className={cn("border-b transition-colors group", getRowColorClass(row.totalDuration))}>
       <td className="p-3 border-r font-medium sticky left-0 z-10 bg-inherit shadow-[4px_0_6px_-2px_rgba(0,0,0,0.05)]">
         <div className="flex flex-col">
-          <span className="font-bold text-foreground">ТК №{row.number}</span>
-          {row.address && <span className="text-xs text-muted-foreground truncate" title={row.address}>{row.address}</span>}
+        <span className="font-bold text-foreground">{row.number}</span>
         </div>
       </td>
       
