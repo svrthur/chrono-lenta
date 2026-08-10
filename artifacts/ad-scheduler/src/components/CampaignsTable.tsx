@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import EditCampaignDialog from './EditCampaignDialog'
 
 type Campaign = {
   id: number
@@ -29,6 +30,7 @@ export function CampaignsTable() {
   })
 
   const [selected, setSelected] = useState<Record<number, boolean>>({})
+  const [editingId, setEditingId] = useState<number | null>(null)
 
   const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectAll = () => {
@@ -58,6 +60,7 @@ export function CampaignsTable() {
 
   return (
     <div className="overflow-auto bg-card rounded p-4">
+      <EditCampaignDialog campaignId={editingId} open={!!editingId} onOpenChange={(v)=>{ if(!v) setEditingId(null)}} />
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm">Выбрано: {Object.values(selected).filter(Boolean).length}</div>
         <div className="space-x-2">
@@ -110,7 +113,10 @@ export function CampaignsTable() {
                 <td className="p-2">{r.endDate}</td>
                 <td className="p-2">{note}</td>
                 <td className="p-2">
-                  <button className="text-sm text-red-600 underline" onClick={()=>handleDelete(r.id)}>Удалить</button>
+                  <div className="flex gap-2 items-center">
+                    <button className="text-sm text-blue-600 underline" onClick={()=>setEditingId(r.id)}>Редактировать</button>
+                    <button className="text-sm text-red-600 underline" onClick={()=>handleDelete(r.id)}>Удалить</button>
+                  </div>
                 </td>
               </tr>
             )
