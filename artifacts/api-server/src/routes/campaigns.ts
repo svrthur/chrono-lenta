@@ -49,6 +49,9 @@ router.post("/campaigns", async (req, res): Promise<void> => {
   }
 
   const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
+  // optional campaign-level TK type
+  const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type)) as string | undefined;
+  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' ? tkTypeRaw : undefined;
 
   if (startDate > endDate) {
     res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
@@ -71,7 +74,7 @@ router.post("/campaigns", async (req, res): Promise<void> => {
 
   const [campaign] = await db
     .insert(campaignsTable)
-    .values({ name, startDate, endDate, client, status, duration, note: note ?? null })
+    .values({ name, startDate, endDate, client, status, duration, note: note ?? null, tkType: tkType ?? null })
     .returning();
 
   if (shoppingCenterNumbers.length > 0) {
@@ -186,6 +189,9 @@ router.put("/campaigns/:id", async (req, res): Promise<void> => {
   }
 
   const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
+  // optional campaign-level TK type
+  const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type)) as string | undefined;
+  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' ? tkTypeRaw : undefined;
 
   if (startDate > endDate) {
     res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
@@ -209,7 +215,7 @@ router.put("/campaigns/:id", async (req, res): Promise<void> => {
   // Update campaign
   const [updated] = await db
     .update(campaignsTable)
-    .set({ name, startDate, endDate, client, status, duration, note: note ?? null })
+    .set({ name, startDate, endDate, client, status, duration, note: note ?? null, tkType: tkType ?? null })
     .where(eq(campaignsTable.id, idParsed))
     .returning();
 

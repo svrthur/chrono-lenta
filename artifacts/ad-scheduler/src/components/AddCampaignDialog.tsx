@@ -24,6 +24,7 @@ interface FormState {
   status: "Платник" | "Не платник"
   duration: string
   shoppingCenterNumbers: string
+  tkType: "ГМ" | "СМ"
 }
 
 const emptyForm = (): FormState => ({
@@ -34,6 +35,7 @@ const emptyForm = (): FormState => ({
   status: "Платник",
   duration: "",
   shoppingCenterNumbers: "",
+  tkType: "ГМ",
 })
 
 interface Props {
@@ -83,6 +85,8 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
         status: form.status,
         duration: Number(form.duration),
         shoppingCenterNumbers: scNumbers,
+        tkType: form.tkType,
+        note: undefined,
       }
 
       const res = await fetch(getApiUrl("/api/campaigns"), {
@@ -238,6 +242,22 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
               </Select>
               {errors.duration && <p className="text-xs text-destructive">{errors.duration}</p>}
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Тип ТК</Label>
+              <Select value={form.tkType} onValueChange={(v) => set("tkType", v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ГМ">ГМ</SelectItem>
+                  <SelectItem value="СМ">СМ</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div />
           </div>
 
           {/* Номера ТК */}
