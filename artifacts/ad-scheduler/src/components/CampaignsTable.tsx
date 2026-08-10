@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 type Campaign = {
   id: number
@@ -12,27 +13,23 @@ type Campaign = {
   shoppingCenters?: { id:number, number:string, city:string, format: string }[]
 }
 
-export function CampaignsTable({ refreshKey = 0 }: { refreshKey?: number }) {
-  const [rows, setRows] = useState<Campaign[]>([])
-  const [loading, setLoading] = useState(true)
+import { getApiUrl } from '@/lib/api'
 
-  useEffect(() => {
-    let mounted = true
-    setLoading(true)
-    ;(async () => {
-      try {
-        const res = await fetch('/api/campaigns')
-        if (!res.ok) throw new Error('Fetch failed')
-        const data = await res.json()
-        if (mounted) setRows(data)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    })()
-    return () => { mounted = false }
-  }, [refreshKey])
+async function fetchCampaigns(): Promise<Campaign[]> {
+  const res = await fetch(getApiUrl('/api/campaigns'))
+  if (!res.ok) throw new Error('Failed to fetch campaigns')
+  return res.json()
+}
+
+export function CampaignsTable() {
+  const { data: rows = [], isLoading, isError } = useQuery<Campaign[]>({
+    queryKey: ['campaigns'],
+    queryFn: fetchCampaigns,
+  })
+
+  if (isError) {
+    return <div className="p-4 text-destructive">Ошибка загрузки кампаний</div>
+  }
 
   return (
     <div className="overflow-auto bg-card rounded p-4">
@@ -50,7 +47,7 @@ export function CampaignsTable({ refreshKey = 0 }: { refreshKey?: number }) {
           </tr>
         </thead>
         <tbody>
-          {!loading && rows.length === 0 && (
+          {!isLoading && rows.length === 0 && (
             <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Нет кампаний</td></tr>
           )}
           {rows.map((r) => (

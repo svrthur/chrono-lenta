@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import CampaignsTable from "@/components/CampaignsTable"
-import ShoppingCentersTable from "@/components/ShoppingCentersTable"
+import { useQueryClient } from '@tanstack/react-query'
+import { getApiUrl } from '@/lib/api'
 
 export function RebuildAdmin() {
   const [name, setName] = useState("");
@@ -12,7 +13,6 @@ export function RebuildAdmin() {
   const [duration, setDuration] = useState(30);
   const [note, setNote] = useState("");
   const [result, setResult] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,20 +27,21 @@ export function RebuildAdmin() {
       note: note || undefined,
     };
 
+    const queryClient = useQueryClient()
     try {
-      const res = await fetch(`/api/campaigns`, {
+      const res = await fetch(getApiUrl(`/api/campaigns`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
-         setResult(`Ошибка: ${data.error || res.statusText}`);
+        setResult(`Ошибка: ${data.error || res.statusText}`);
       } else {
-         setResult("Кампания создана");
-         setName(""); setClient(""); setStartDate(""); setEndDate(""); setTkList(""); setNote("");
-         // bump refresh key so CampaignsTable reloads
-         setRefreshKey(k => k + 1);
+        setResult("Кампания создана");
+        setName(""); setClient(""); setStartDate(""); setEndDate(""); setTkList(""); setNote("");
+        // Invalidate campaigns query so table refreshes
+        try { queryClient.invalidateQueries(['campaigns']) } catch (e) { /* ignore */ }
       }
     } catch (err: any) {
       setResult(`Ошибка запроса: ${err.message}`);
@@ -90,9 +91,7 @@ export function RebuildAdmin() {
 
       <div className="flex-1 max-w-3xl">
         <h3 className="text-lg font-semibold mb-3">Список кампаний</h3>
-        <CampaignsTable refreshKey={refreshKey} />
-        <h3 className="text-lg font-semibold mt-6 mb-2">Список ТК</h3>
-        <ShoppingCentersTable />
+        <CampaignsTable />
       </div>
     </div>
   );
