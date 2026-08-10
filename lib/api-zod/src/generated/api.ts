@@ -78,7 +78,8 @@ export const ListCampaignsResponseItem = zod.object({
   "duration": zod.number().describe('Duration in seconds'),
   "status": zod.enum(['Платник', 'Не платник']),
   "startDate": zod.string().describe('ISO date string'),
-  "endDate": zod.string().describe('ISO date string')
+  "endDate": zod.string().describe('ISO date string'),
+  "note": zod.string().nullish()
 })
 export const ListCampaignsResponse = zod.array(ListCampaignsResponseItem)
 
@@ -94,6 +95,7 @@ export const CreateCampaignBody = zod.object({
   "status": zod.enum(['Платник', 'Не платник']),
   "duration": zod.number().int(),
   "shoppingCenterNumbers": zod.array(zod.string()),
+  "note": zod.string().nullish(),
 })
 
 export const CreateCampaignResponse = zod.object({
@@ -104,6 +106,7 @@ export const CreateCampaignResponse = zod.object({
   "status": zod.enum(['Платник', 'Не платник']),
   "startDate": zod.string(),
   "endDate": zod.string(),
+  "note": zod.string().nullish(),
   "shoppingCenters": zod.array(zod.object({
     "id": zod.number(),
     "number": zod.string(),

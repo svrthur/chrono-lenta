@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import CampaignsTable from "@/components/CampaignsTable"
 
 export function RebuildAdmin() {
   const [name, setName] = useState("");
@@ -8,6 +9,7 @@ export function RebuildAdmin() {
   const [tkList, setTkList] = useState("");
   const [status, setStatus] = useState("Платник");
   const [duration, setDuration] = useState(30);
+  const [note, setNote] = useState("");
   const [result, setResult] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
@@ -20,6 +22,7 @@ export function RebuildAdmin() {
       status,
       duration,
       shoppingCenterNumbers: tkList.split(/[,\s]+/).filter(Boolean),
+      note: note || undefined,
     };
 
     try {
@@ -41,7 +44,7 @@ export function RebuildAdmin() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
+    <div className="min-h-screen bg-background flex items-start justify-center p-6 gap-6">
       <div className="w-full max-w-lg bg-card p-6 rounded shadow">
         <h2 className="text-xl font-bold mb-4">Админ: добавить кампанию</h2>
         <form onSubmit={submit} className="space-y-3">
@@ -67,11 +70,23 @@ export function RebuildAdmin() {
             <label className="block text-sm">Номера ТК (через запятую или пробел)</label>
             <textarea className="w-full border px-2 py-1 rounded" rows={3} value={tkList} onChange={e => setTkList(e.target.value)} />
           </div>
+
+          <div>
+            <label className="block text-sm">Примечание</label>
+            <input className="w-full border px-2 py-1 rounded" value={note} onChange={e => setNote(e.target.value)} />
+            <p className="text-xs text-muted-foreground">Опционально</p>
+          </div>
+
           <div className="flex items-center justify-between">
             <button className="px-4 py-2 bg-primary text-white rounded" type="submit">Сохранить</button>
             {result && <div className="text-sm text-muted-foreground">{result}</div>}
           </div>
         </form>
+      </div>
+
+      <div className="flex-1 max-w-3xl">
+        <h3 className="text-lg font-semibold mb-3">Список кампаний</h3>
+        <CampaignsTable />
       </div>
     </div>
   );
