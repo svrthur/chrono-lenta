@@ -12,12 +12,13 @@ type Campaign = {
   shoppingCenters?: { id:number, number:string, city:string, format: string }[]
 }
 
-export function CampaignsTable() {
+export function CampaignsTable({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let mounted = true
+    setLoading(true)
     ;(async () => {
       try {
         const res = await fetch('/api/campaigns')
@@ -31,7 +32,7 @@ export function CampaignsTable() {
       }
     })()
     return () => { mounted = false }
-  }, [])
+  }, [refreshKey])
 
   return (
     <div className="overflow-auto bg-card rounded p-4">

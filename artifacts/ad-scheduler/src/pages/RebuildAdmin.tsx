@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import CampaignsTable from "@/components/CampaignsTable"
+import ShoppingCentersTable from "@/components/ShoppingCentersTable"
 
 export function RebuildAdmin() {
   const [name, setName] = useState("");
@@ -11,6 +12,7 @@ export function RebuildAdmin() {
   const [duration, setDuration] = useState(30);
   const [note, setNote] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,10 +35,12 @@ export function RebuildAdmin() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setResult(`Ошибка: ${data.error || res.statusText}`);
+         setResult(`Ошибка: ${data.error || res.statusText}`);
       } else {
-        setResult("Кампания создана");
-        setName(""); setClient(""); setStartDate(""); setEndDate(""); setTkList("");
+         setResult("Кампания создана");
+         setName(""); setClient(""); setStartDate(""); setEndDate(""); setTkList(""); setNote("");
+         // bump refresh key so CampaignsTable reloads
+         setRefreshKey(k => k + 1);
       }
     } catch (err: any) {
       setResult(`Ошибка запроса: ${err.message}`);
@@ -86,7 +90,9 @@ export function RebuildAdmin() {
 
       <div className="flex-1 max-w-3xl">
         <h3 className="text-lg font-semibold mb-3">Список кампаний</h3>
-        <CampaignsTable />
+        <CampaignsTable refreshKey={refreshKey} />
+        <h3 className="text-lg font-semibold mt-6 mb-2">Список ТК</h3>
+        <ShoppingCentersTable />
       </div>
     </div>
   );
