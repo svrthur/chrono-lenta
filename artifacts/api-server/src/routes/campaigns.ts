@@ -48,7 +48,7 @@ router.post("/campaigns", async (req, res): Promise<void> => {
     return;
   }
 
-  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers } = parsed.data;
+  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
 
   if (startDate > endDate) {
     res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
@@ -71,7 +71,7 @@ router.post("/campaigns", async (req, res): Promise<void> => {
 
   const [campaign] = await db
     .insert(campaignsTable)
-    .values({ name, startDate, endDate, client, status, duration })
+    .values({ name, startDate, endDate, client, status, duration, note: note ?? null })
     .returning();
 
   if (shoppingCenterNumbers.length > 0) {

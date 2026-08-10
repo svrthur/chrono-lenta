@@ -10,6 +10,7 @@ export const campaignsTable = pgTable("campaigns", {
   status: text("status").notNull(), // "Платник" | "Не платник"
   startDate: date("start_date", { mode: "string" }).notNull(),
   endDate: date("end_date", { mode: "string" }).notNull(),
+  note: text("note"),
 });
 
 export const insertCampaignSchema = createInsertSchema(campaignsTable).omit({ id: true });
