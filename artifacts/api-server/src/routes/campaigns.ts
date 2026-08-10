@@ -170,4 +170,76 @@ router.delete("/campaigns/:id", async (req, res): Promise<void> => {
   res.json({ success: true, deleted: 1 });
 });
 
+// Update existing campaign and its placements
+router.put("/campaigns/:id", async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const idParsed = parseInt(rawId, 10);
+  if (Number.isNaN(idParsed)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+
+  const parsed = CreateCampaignBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
+
+  if (startDate > endDate) {
+    res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
+    return;
+  }
+
+  // Ensure shopping centers exist
+  const existingSCs = await db.select().from(shoppingCentersTable);
+  const scByNumber = new Map(existingSCs.map((sc) => [sc.number, sc.id]));
+
+  const unknownNumbers = shoppingCenterNumbers.filter((n) => !scByNumber.has(n));
+  if (unknownNumbers.length > 0) {
+    const inserted = await db
+      .insert(shoppingCentersTable)
+      .values(unknownNumbers.map((n) => ({ number: n, city: "Неизвестный", format: "ГМ" as const, address: null })))
+      .onConflictDoNothing()
+      .returning();
+    for (const sc of inserted) scByNumber.set(sc.number, sc.id);
+  }
+
+  // Update campaign
+  const [updated] = await db
+    .update(campaignsTable)
+    .set({ name, startDate, endDate, client, status, duration, note: note ?? null })
+    .where(eq(campaignsTable.id, idParsed))
+    .returning();
+
+  if (!updated) {
+    res.status(404).json({ error: "Campaign not found" });
+    return;
+  }
+
+  // Replace placements: delete existing, insert new
+  await db.delete(campaignPlacementsTable).where(eq(campaignPlacementsTable.campaignId, idParsed));
+
+  if (shoppingCenterNumbers.length > 0) {
+    const placements = shoppingCenterNumbers
+      .filter((n) => scByNumber.has(n))
+      .map((n) => ({ campaignId: idParsed, shoppingCenterId: scByNumber.get(n)! }));
+    if (placements.length > 0) {
+      await db.insert(campaignPlacementsTable).values(placements).onConflictDoNothing();
+    }
+  }
+
+  const placementRows = await db
+    .select({ sc: shoppingCentersTable })
+    .from(campaignPlacementsTable)
+    .innerJoin(shoppingCentersTable, eq(campaignPlacementsTable.shoppingCenterId, shoppingCentersTable.id))
+    .where(eq(campaignPlacementsTable.campaignId, idParsed));
+
+  const { broadcastDataUpdated } = await import("../lib/sse.js");
+  broadcastDataUpdated();
+
+  res.json({ ...updated, shoppingCenters: placementRows.map((p) => p.sc) });
+});
+
 export default router;
