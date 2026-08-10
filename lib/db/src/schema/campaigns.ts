@@ -8,7 +8,7 @@ export const campaignsTable = pgTable("campaigns", {
   client: text("client").notNull(),
   duration: integer("duration").notNull(), // seconds
   status: text("status").notNull(), // "Платник" | "Не платник"
-  tkType: text("tk_type").nullable(), // "ГМ" | "СМ" - optional campaign-level TK type
+  tkType: text("tk_type"), // "ГМ" | "СМ" - optional campaign-level TK type
   startDate: date("start_date", { mode: "string" }).notNull(),
   endDate: date("end_date", { mode: "string" }).notNull(),
   note: text("note"),
