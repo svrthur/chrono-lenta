@@ -13,8 +13,10 @@ type Campaign = {
   shoppingCenters?: { id:number, number:string, city:string, format: string }[]
 }
 
+import { getApiUrl } from '@/lib/api'
+
 async function fetchCampaigns(): Promise<Campaign[]> {
-  const res = await fetch('/api/campaigns')
+  const res = await fetch(getApiUrl('/api/campaigns'))
   if (!res.ok) throw new Error('Failed to fetch campaigns')
   return res.json()
 }

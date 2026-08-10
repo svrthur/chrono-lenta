@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import CampaignsTable from "@/components/CampaignsTable"
 import { useQueryClient } from '@tanstack/react-query'
+import { getApiUrl } from '@/lib/api'
 
 export function RebuildAdmin() {
   const [name, setName] = useState("");
@@ -26,8 +27,9 @@ export function RebuildAdmin() {
       note: note || undefined,
     };
 
+    const queryClient = useQueryClient()
     try {
-      const res = await fetch(`/api/campaigns`, {
+      const res = await fetch(getApiUrl(`/api/campaigns`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
