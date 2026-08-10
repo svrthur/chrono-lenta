@@ -175,4 +175,5 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  }
+  )
+}
