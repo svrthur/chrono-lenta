@@ -90,14 +90,24 @@ export function CampaignsTable() {
             <tr><td colSpan={11} className="p-4 text-center text-muted-foreground">Нет кампаний</td></tr>
           )}
           {rows.map((r, idx) => {
-            // derive schedule status
+            // derive schedule status: prefer explicit schedule status stored in r.status if present
             const start = r.startDate
             const end = r.endDate
-            let sched = 'опубликовано'
-            if (start <= today && end >= today) sched = 'Опубликовано'
-            else if (end < today) sched = 'завершено'
+            const statusVal = (r.status || '').toLowerCase()
+            const scheduleStatuses = ['запланировано', 'опубликовано', 'опубликовано', 'завершено']
+            let sched = ''
+            if (scheduleStatuses.includes(statusVal)) {
+              // use stored schedule status (preserve original casing if available)
+              sched = r.status
+            } else {
+              // fallback to computed schedule status by dates
+              sched = 'запланировано'
+              if (start <= today && end >= today) sched = 'Опубликовано'
+              else if (end < today) sched = 'завершено'
+            }
 
-            const payer = r.status // Платник | Не платник
+            // determine payer stored in note or legacy r.status
+            const payer = (r.note && (r.note.includes('Платник') ? 'Платник' : (r.note.includes('Не платник') ? 'Не платник' : undefined))) || (r.status === 'Платник' || r.status === 'Не платник' ? r.status : undefined)
             const note = [r.note, payer].filter(Boolean).join(' | ')
 
             return (
@@ -105,7 +115,7 @@ export function CampaignsTable() {
                 <td className="p-2"><input type="checkbox" checked={!!selected[r.id]} onChange={()=>toggle(r.id)} /></td>
                 <td className="p-2">{idx + 1}</td>
                 <td className="p-2">{r.name}</td>
-                <td className="p-2">{Array.from(new Set((r.shoppingCenters||[]).map(s=>s.format))).join(', ') || '-'}</td>
+                <td className="p-2">{(r.tkType || (r as any).tk_type) || Array.from(new Set((r.shoppingCenters||[]).map(s=>s.format))).join(', ') || '-'}</td>
                 <td className="p-2">{r.duration} сек</td>
                 <td className="p-2">{r.client}</td>
                 <td className="p-2">{sched}</td>
