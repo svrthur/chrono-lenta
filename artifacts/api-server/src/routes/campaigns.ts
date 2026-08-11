@@ -51,7 +51,7 @@ router.post("/campaigns", async (req, res): Promise<void> => {
   const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
   // optional campaign-level TK type
   const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type)) as string | undefined;
-  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' ? tkTypeRaw : undefined;
+  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' || tkTypeRaw === 'ГМ+СМ' ? tkTypeRaw : undefined;
 
   if (startDate > endDate) {
     res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
@@ -191,7 +191,7 @@ router.put("/campaigns/:id", async (req, res): Promise<void> => {
   const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
   // optional campaign-level TK type
   const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type)) as string | undefined;
-  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' ? tkTypeRaw : undefined;
+  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' || tkTypeRaw === 'ГМ+СМ' ? tkTypeRaw : undefined;
 
   if (startDate > endDate) {
     res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });

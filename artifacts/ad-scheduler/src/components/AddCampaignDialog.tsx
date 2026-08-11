@@ -81,18 +81,19 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
         .map((s) => s.trim())
         .filter(Boolean)
 
+      const cleanedNote = (form.note || '').replace(/\bПлатник\b|\bНе платник\b/g, '').trim();
       const body = {
-        name: form.name.trim(),
-        client: form.client.trim(),
-        startDate: format(form.startDate!, "yyyy-MM-dd"),
-        endDate: format(form.endDate!, "yyyy-MM-dd"),
-        // keep status for backend but also place payer into note
-        status: form.payer,
-        duration: Number(form.duration),
-        shoppingCenterNumbers: scNumbers,
-        tkType: form.tkType,
-        tk_type: form.tkType,
-        note: (form.note ? form.note.trim() + ' | ' : '') + form.payer,
+      name: form.name.trim(),
+      client: form.client.trim(),
+      startDate: format(form.startDate!, "yyyy-MM-dd"),
+      endDate: format(form.endDate!, "yyyy-MM-dd"),
+      // keep status for backend but also place payer into note
+      status: form.payer,
+      duration: Number(form.duration),
+      shoppingCenterNumbers: scNumbers,
+      tkType: form.tkType,
+      tk_type: form.tkType,
+      note: (cleanedNote ? cleanedNote + ' | ' : '') + form.payer,
       }
 
       const res = await fetch(getApiUrl("/api/campaigns"), {
@@ -230,6 +231,7 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
                 <SelectContent>
                   <SelectItem value="ГМ">ГМ</SelectItem>
                   <SelectItem value="СМ">СМ</SelectItem>
+                  <SelectItem value="ГМ+СМ">ГМ+СМ</SelectItem>
                 </SelectContent>
               </Select>
             </div>

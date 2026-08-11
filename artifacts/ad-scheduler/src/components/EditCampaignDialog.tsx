@@ -74,6 +74,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
     setLoading(true)
     try {
       const scNumbers = form.shoppingCenterNumbers.split(',').map((s:string)=>s.trim()).filter(Boolean)
+        const cleanedNote = (form.note || '').replace(/\bПлатник\b|\bНе платник\b/g, '').trim();
       const body = {
         name: form.name.trim(),
         client: form.client.trim(),
@@ -86,7 +87,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
         tkType: form.tkType,
         tk_type: form.tkType,
         // keep payer inside note per spec
-        note: (form.note ? form.note.trim() + ' | ' : '') + form.payer
+        note: (cleanedNote ? cleanedNote + ' | ' : '') + form.payer
       }
       const res = await fetch(getApiUrl(`/api/campaigns/${campaignId}`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) {
@@ -176,6 +177,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
                 <SelectContent>
                   <SelectItem value="ГМ">ГМ</SelectItem>
                   <SelectItem value="СМ">СМ</SelectItem>
+                  <SelectItem value="ГМ+СМ">ГМ+СМ</SelectItem>
                 </SelectContent>
               </Select>
             </div>
