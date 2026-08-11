@@ -21,10 +21,13 @@ interface FormState {
   client: string
   startDate: Date | undefined
   endDate: Date | undefined
-  status: "Платник" | "Не платник"
+  // tkType chosen in the field formerly called "Статус"
+  tkType: "ГМ" | "СМ"
   duration: string
   shoppingCenterNumbers: string
-  tkType: "ГМ" | "СМ"
+  // payer moved to note area but also stored as payer for backend compatibility
+  payer: "Платник" | "Не платник"
+  note?: string
 }
 
 const emptyForm = (): FormState => ({
@@ -32,10 +35,11 @@ const emptyForm = (): FormState => ({
   client: "",
   startDate: undefined,
   endDate: undefined,
-  status: "Платник",
+  tkType: "ГМ",
   duration: "",
   shoppingCenterNumbers: "",
-  tkType: "ГМ",
+  payer: "Не платник",
+  note: "",
 })
 
 interface Props {
@@ -82,11 +86,13 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
         client: form.client.trim(),
         startDate: format(form.startDate!, "yyyy-MM-dd"),
         endDate: format(form.endDate!, "yyyy-MM-dd"),
-        status: form.status,
+        // keep status for backend but also place payer into note
+        status: form.payer,
         duration: Number(form.duration),
         shoppingCenterNumbers: scNumbers,
         tkType: form.tkType,
-        note: undefined,
+        tk_type: form.tkType,
+        note: (form.note ? form.note.trim() + ' | ' : '') + form.payer,
       }
 
       const res = await fetch(getApiUrl("/api/campaigns"), {
@@ -216,14 +222,14 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
           {/* Статус и Длительность */}
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Статус</Label>
-              <Select value={form.status} onValueChange={(v) => set("status", v as any)}>
+              <Label>Тип ТК (Статус)</Label>
+              <Select value={form.tkType} onValueChange={(v) => set("tkType", v as any)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Платник">Платник</SelectItem>
-                  <SelectItem value="Не платник">Не платник</SelectItem>
+                  <SelectItem value="ГМ">ГМ</SelectItem>
+                  <SelectItem value="СМ">СМ</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -246,14 +252,14 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Тип ТК</Label>
-              <Select value={form.tkType} onValueChange={(v) => set("tkType", v as any)}>
+              <Label>Платник / Не платник (в примечании)</Label>
+              <Select value={form.payer} onValueChange={(v) => set("payer", v as any)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ГМ">ГМ</SelectItem>
-                  <SelectItem value="СМ">СМ</SelectItem>
+                  <SelectItem value="Платник">Платник</SelectItem>
+                  <SelectItem value="Не платник">Не платник</SelectItem>
                 </SelectContent>
               </Select>
             </div>

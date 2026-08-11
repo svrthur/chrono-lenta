@@ -26,7 +26,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState<any>({ name: '', client: '', startDate: undefined, endDate: undefined, status: 'Платник', duration: '', shoppingCenterNumbers: '', note: '' })
+  const [form, setForm] = useState<any>({ name: '', client: '', startDate: undefined, endDate: undefined, status: 'запланировано', tkType: 'ГМ', duration: '', shoppingCenterNumbers: '', payer: 'Не платник', note: '' })
 
   useEffect(() => {
     if (!campaignId) return
@@ -35,14 +35,30 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
       .then((r) => r.json())
       .then((data) => {
         if (!mounted) return
+        // Determine payer vs schedule status compatibility
+        const noteStr: string = data.note || ''
+        let payerVal = 'Не платник'
+        let statusVal = ''
+        // If backend stored payer in status (legacy), detect
+        if (data.status === 'Платник' || data.status === 'Не платник') {
+          payerVal = data.status
+        } else if (data.status) {
+          statusVal = data.status
+        }
+        // If note contains payer token, prefer it
+        if (noteStr.includes('Платник')) payerVal = 'Платник'
+        else if (noteStr.includes('Не платник')) payerVal = 'Не платник'
+
         setForm({
           name: data.name || '',
           client: data.client || '',
           startDate: data.startDate ? new Date(data.startDate) : undefined,
           endDate: data.endDate ? new Date(data.endDate) : undefined,
-          status: data.status || 'Платник',
+          status: statusVal || '',
+          tkType: data.tkType || (data as any).tk_type || 'ГМ',
           duration: String(data.duration || ''),
           shoppingCenterNumbers: (data.shoppingCenters || []).map((s:any)=>s.number).join(', '),
+          payer: payerVal,
           note: data.note || ''
         })
       })
@@ -63,10 +79,14 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
         client: form.client.trim(),
         startDate: form.startDate ? format(form.startDate, 'yyyy-MM-dd') : null,
         endDate: form.endDate ? format(form.endDate, 'yyyy-MM-dd') : null,
+        // send schedule status in status field
         status: form.status,
         duration: Number(form.duration),
         shoppingCenterNumbers: scNumbers,
-        note: form.note || null
+        tkType: form.tkType,
+        tk_type: form.tkType,
+        // keep payer inside note per spec
+        note: (form.note ? form.note.trim() + ' | ' : '') + form.payer
       }
       const res = await fetch(getApiUrl(`/api/campaigns/${campaignId}`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) {
@@ -138,20 +158,46 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Статус (Платник/Не платник)</Label>
+              <Label>Статус</Label>
               <Select value={form.status} onValueChange={(v:any)=>set('status', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Платник">Платник</SelectItem>
-                  <SelectItem value="Не платник">Не платник</SelectItem>
+                  <SelectItem value="запланировано">запланировано</SelectItem>
+                  <SelectItem value="опубликовано">опубликовано</SelectItem>
+                  <SelectItem value="завершено">завершено</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="grid gap-1.5">
+              <Label>Тип ТК</Label>
+              <Select value={form.tkType} onValueChange={(v:any)=>set('tkType', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ГМ">ГМ</SelectItem>
+                  <SelectItem value="СМ">СМ</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>Длительность</Label>
               <Select value={form.duration} onValueChange={(v:any)=>set('duration', v)}>
                 <SelectTrigger><SelectValue placeholder="Выбрать" /></SelectTrigger>
                 <SelectContent>{DURATION_OPTIONS.map(sec=> <SelectItem key={sec} value={String(sec)}>{sec} сек</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>Платник / Не платник (в примечании)</Label>
+              <Select value={form.payer} onValueChange={(v:any)=>set('payer', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Платник">Платник</SelectItem>
+                  <SelectItem value="Не платник">Не платник</SelectItem>
+                </SelectContent>
               </Select>
             </div>
           </div>
