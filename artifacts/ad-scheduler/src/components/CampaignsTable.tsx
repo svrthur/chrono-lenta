@@ -143,8 +143,10 @@ export function CampaignsTable() {
           </select>
         </div>
         <div>
-          <label className="text-xs block mb-1">Направление</label>
-          <button className="border rounded px-2 py-1 text-sm" onClick={()=>setSortDir(s=> s==='asc'?'desc':'asc')}>{sortDir}</button>
+          <label className="text-xs block mb-1">Порядок</label>
+          <button className="border rounded px-2 py-1 text-sm" onClick={()=>setSortDir(s=> s==='asc'?'desc':'asc')}>
+            {sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'}
+          </button>
         </div>
       </div>
 
