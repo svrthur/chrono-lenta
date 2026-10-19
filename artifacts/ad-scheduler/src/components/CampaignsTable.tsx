@@ -20,13 +20,16 @@ type Campaign = {
 
 async function fetchCampaigns(): Promise<Campaign[]> {
   const res = await fetch(getApiUrl("/api/campaigns"))
-  if (!res.ok) throw new Error("Failed to fetch campaigns")
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}))
+    throw new Error(errData.error || `Ошибка сервера (${res.status})`)
+  }
   return res.json()
 }
 
 export function CampaignsTable() {
   const queryClient = useQueryClient()
-  const { data: rows = [], isLoading, isError } = useQuery<Campaign[]>({
+  const { data: rows = [], isLoading, isError, error, refetch } = useQuery<Campaign[]>({
     queryKey: ["campaigns"],
     queryFn: fetchCampaigns,
   })
@@ -78,10 +81,6 @@ export function CampaignsTable() {
     }
   }
 
-  if (isError) {
-    return <div className="p-4 text-destructive">Ошибка загрузки кампаний</div>
-  }
-
   const clients = Array.from(new Set(rows.map((r) => r.client))).filter(Boolean)
 
   const normalizedRows = rows.map((r) => {
@@ -120,6 +119,7 @@ export function CampaignsTable() {
         }}
       />
 
+      {/* Меню фильтров таблицы — теперь отображается всегда */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div>
@@ -184,6 +184,15 @@ export function CampaignsTable() {
         </div>
       </div>
 
+      {isError && (
+        <div className="mb-4 p-3 rounded border border-destructive/40 bg-destructive/10 text-destructive text-sm flex items-center justify-between">
+          <span>Ошибка загрузки кампаний: {(error as Error)?.message || "Сервер недоступен"}</span>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Повторить
+          </Button>
+        </div>
+      )}
+
       <table className="w-full table-auto text-sm">
         <thead className="bg-muted/40">
           <tr>
@@ -207,6 +216,13 @@ export function CampaignsTable() {
           </tr>
         </thead>
         <tbody>
+          {isLoading && (
+            <tr>
+              <td colSpan={11} className="p-6 text-center text-muted-foreground">
+                Загрузка данных...
+              </td>
+            </tr>
+          )}
           {!isLoading && filteredRows.length === 0 && (
             <tr>
               <td colSpan={11} className="p-6 text-center text-muted-foreground">
