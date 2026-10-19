@@ -1,63 +1,67 @@
+import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import NotFound from '@/pages/not-found';
 import { Home } from '@/pages/Home';
 import { RebuildAdmin } from '@/pages/RebuildAdmin';
-import { Route, Switch, Router as WouterRouter, Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { MonitorPlay, Settings } from 'lucide-react';
 
 const queryClient = new QueryClient();
 
-function Navbar() {
-  const [location] = useLocation();
+type ActivePage = 'admin' | 'board';
 
-  return (
-    <header className="border-b bg-card px-6 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-      <div className="flex items-center gap-3">
-        <span className="text-lg font-bold tracking-tight">Chrono Lenta</span>
-      </div>
-      <nav className="flex items-center gap-2">
-        <Link href="/">
-          <Button variant={location === '/' ? 'default' : 'ghost'} size="sm" className="gap-2">
-            <Settings className="w-4 h-4" />
-            Админ (Загрузка данных)
-          </Button>
-        </Link>
-        <Link href="/board">
-          <Button variant={location === '/board' ? 'default' : 'ghost'} size="sm" className="gap-2">
-            <MonitorPlay className="w-4 h-4" />
-            Экраны ТК (Для коллег)
-          </Button>
-        </Link>
-      </nav>
-    </header>
-  );
+function getInitialPage(): ActivePage {
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+  if (path.includes('board') || hash.includes('board')) return 'board';
+  const saved = localStorage.getItem('chrono_active_page');
+  if (saved === 'board' || saved === 'admin') return saved;
+  return 'admin';
 }
 
-function Router() {
-  return (
-    <Switch>
-      <Route path="/" component={Home} />
-      <Route path="/board" component={RebuildAdmin} />
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
+export function App() {
+  const [page, setPage] = useState<ActivePage>(getInitialPage);
 
-function App() {
+  useEffect(() => {
+    localStorage.setItem('chrono_active_page', page);
+    window.location.hash = page === 'board' ? '#board' : '#admin';
+  }, [page]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <div className="min-h-screen bg-background flex flex-col">
-            <Navbar />
-            <main className="flex-1">
-              <Router />
-            </main>
-          </div>
-        </WouterRouter>
+        <div className="min-h-screen bg-background flex flex-col">
+          <header className="border-b bg-card px-4 py-2.5 flex items-center justify-between sticky top-0 z-50 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <span className="text-base font-bold tracking-tight">Chrono Lenta</span>
+            </div>
+            <nav className="flex items-center gap-2">
+              <Button
+                variant={page === 'admin' ? 'default' : 'ghost'}
+                size="sm"
+                className="gap-2 h-8 text-xs"
+                onClick={() => setPage('admin')}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                Админ (Загрузка данных)
+              </Button>
+              <Button
+                variant={page === 'board' ? 'default' : 'ghost'}
+                size="sm"
+                className="gap-2 h-8 text-xs"
+                onClick={() => setPage('board')}
+              >
+                <MonitorPlay className="w-3.5 h-3.5" />
+                Экраны ТК (Для коллег)
+              </Button>
+            </nav>
+          </header>
+
+          <main className="flex-1">
+            {page === 'admin' ? <Home /> : <RebuildAdmin />}
+          </main>
+        </div>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
