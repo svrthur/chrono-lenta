@@ -1,7 +1,7 @@
 import React, { useState } from "react"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, PlusIcon } from "lucide-react"
+import { CalendarIcon, CheckIcon } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,32 +14,33 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { getApiUrl } from "@/lib/api"
 
-const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45]
+export const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+export const FORMAT_OPTIONS = ["ГМ", "СМ", "част.ГМ", "част.СМ"] as const
+export const TYPE_OPTIONS = [
+  { label: "платный", value: "Платник" },
+  { label: "не платный", value: "Не платник" },
+] as const
 
 interface FormState {
   name: string
-  client: string
   startDate: Date | undefined
   endDate: Date | undefined
-  // tkType chosen in the field formerly called "Статус"
-  tkType: "ГМ" | "СМ"
+  client: string
   duration: string
+  format: string
+  type: string
   shoppingCenterNumbers: string
-  // payer moved to note area but also stored as payer for backend compatibility
-  payer: "Платник" | "Не платник"
-  note?: string
 }
 
 const emptyForm = (): FormState => ({
   name: "",
-  client: "",
   startDate: undefined,
   endDate: undefined,
-  tkType: "ГМ",
+  client: "",
   duration: "",
+  format: "",
+  type: "",
   shoppingCenterNumbers: "",
-  payer: "Не платник",
-  note: "",
 })
 
 interface Props {
@@ -62,12 +63,17 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
   const validate = (): boolean => {
     const errs: Partial<Record<keyof FormState, string>> = {}
     if (!form.name.trim()) errs.name = "Введите название"
+    if (!form.startDate) errs.startDate = "Выберите дату старта"
+    if (!form.endDate) errs.endDate = "Выберите дату окончания"
+    if (form.startDate && form.endDate && form.startDate > form.endDate) {
+      errs.endDate = "Дата окончания раньше даты старта"
+    }
     if (!form.client.trim()) errs.client = "Введите заказчика"
-    if (!form.startDate) errs.startDate = "Выберите дату"
-    if (!form.endDate) errs.endDate = "Выберите дату"
-    if (form.startDate && form.endDate && form.startDate > form.endDate)
-      errs.endDate = "Дата окончания раньше даты начала"
     if (!form.duration) errs.duration = "Выберите длительность"
+    if (!form.format) errs.format = "Выберите формат"
+    if (!form.type) errs.type = "Выберите тип"
+    if (!form.shoppingCenterNumbers.trim()) errs.shoppingCenterNumbers = "Укажите номера ТК через запятую"
+
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -81,19 +87,17 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
         .map((s) => s.trim())
         .filter(Boolean)
 
-      const cleanedNote = (form.note || '').replace(/\bПлатник\b|\bНе платник\b/g, '').trim();
       const body = {
-      name: form.name.trim(),
-      client: form.client.trim(),
-      startDate: format(form.startDate!, "yyyy-MM-dd"),
-      endDate: format(form.endDate!, "yyyy-MM-dd"),
-      // keep status for backend but also place payer into note
-      status: form.payer,
-      duration: Number(form.duration),
-      shoppingCenterNumbers: scNumbers,
-      tkType: form.tkType,
-      tk_type: form.tkType,
-      note: (cleanedNote ? cleanedNote + ' | ' : '') + form.payer,
+        name: form.name.trim(),
+        startDate: format(form.startDate!, "yyyy-MM-dd"),
+        endDate: format(form.endDate!, "yyyy-MM-dd"),
+        client: form.client.trim(),
+        duration: Number(form.duration),
+        tkType: form.format,
+        tk_type: form.format,
+        status: form.type, // "Платник" | "Не платник"
+        shoppingCenterNumbers: scNumbers,
+        note: form.type === "Платник" ? "платный" : "не платный",
       }
 
       const res = await fetch(getApiUrl("/api/campaigns"), {
@@ -107,7 +111,7 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
         throw new Error(data.error || `Ошибка ${res.status}`)
       }
 
-      toast({ title: "Кампания добавлена", variant: "success" })
+      toast({ title: "Данные успешно загружены", variant: "success" })
       queryClient.invalidateQueries()
       setForm(emptyForm())
       onOpenChange(false)
@@ -120,17 +124,17 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[540px]">
         <DialogHeader>
-          <DialogTitle>Новая рекламная кампания</DialogTitle>
+          <DialogTitle>Загрузка данных рекламной кампании</DialogTitle>
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
-          {/* Название */}
+          {/* 1. Название */}
           <div className="grid gap-1.5">
-            <Label>Название рекламной кампании <span className="text-destructive">*</span></Label>
+            <Label>Название <span className="text-destructive">*</span></Label>
             <Input
-              placeholder="Введите название"
+              placeholder="Введите название кампании"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
               className={cn(errors.name && "border-destructive")}
@@ -138,19 +142,7 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
-          {/* Заказчик */}
-          <div className="grid gap-1.5">
-            <Label>Заказчик <span className="text-destructive">*</span></Label>
-            <Input
-              placeholder="Введите заказчика"
-              value={form.client}
-              onChange={(e) => set("client", e.target.value)}
-              className={cn(errors.client && "border-destructive")}
-            />
-            {errors.client && <p className="text-xs text-destructive">{errors.client}</p>}
-          </div>
-
-          {/* Даты */}
+          {/* 2. Дата старта и 3. Дата окончания */}
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>Дата старта <span className="text-destructive">*</span></Label>
@@ -158,28 +150,24 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className={cn("justify-start text-left font-normal", !form.startDate && "text-muted-foreground", errors.startDate && "border-destructive")}
+                    className={cn(
+                      "justify-start text-left font-normal",
+                      !form.startDate && "text-muted-foreground",
+                      errors.startDate && "border-destructive"
+                    )}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {form.startDate ? format(form.startDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать"}
+                    {form.startDate ? format(form.startDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <div className="p-2">
-                    <Calendar
-                      mode="single"
-                      selected={form.startDate}
-                      onSelect={(d) => set("startDate", d)}
-                      initialFocus
-                    />
-                    <div className="mt-2">
-                      <Input
-                        type="date"
-                        value={form.startDate ? (form.startDate.toISOString().slice(0,10)) : ""}
-                        onChange={(e) => set("startDate", e.target.value ? new Date(e.target.value) : undefined)}
-                      />
-                    </div>
-                  </div>
+                  <Calendar
+                    mode="single"
+                    selected={form.startDate}
+                    onSelect={(d) => set("startDate", d)}
+                    locale={ru}
+                    initialFocus
+                  />
                 </PopoverContent>
               </Popover>
               {errors.startDate && <p className="text-xs text-destructive">{errors.startDate}</p>}
@@ -191,51 +179,45 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className={cn("justify-start text-left font-normal", !form.endDate && "text-muted-foreground", errors.endDate && "border-destructive")}
+                    className={cn(
+                      "justify-start text-left font-normal",
+                      !form.endDate && "text-muted-foreground",
+                      errors.endDate && "border-destructive"
+                    )}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {form.endDate ? format(form.endDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать"}
+                    {form.endDate ? format(form.endDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <div className="p-2">
-                    <Calendar
-                      mode="single"
-                      selected={form.endDate}
-                      onSelect={(d) => set("endDate", d)}
-                      initialFocus
-                      disabled={form.startDate ? { before: form.startDate } : undefined}
-                    />
-                    <div className="mt-2">
-                      <Input
-                        type="date"
-                        value={form.endDate ? (form.endDate.toISOString().slice(0,10)) : ""}
-                        onChange={(e) => set("endDate", e.target.value ? new Date(e.target.value) : undefined)}
-                      />
-                    </div>
-                  </div>
+                  <Calendar
+                    mode="single"
+                    selected={form.endDate}
+                    onSelect={(d) => set("endDate", d)}
+                    locale={ru}
+                    initialFocus
+                    disabled={form.startDate ? { before: form.startDate } : undefined}
+                  />
                 </PopoverContent>
               </Popover>
               {errors.endDate && <p className="text-xs text-destructive">{errors.endDate}</p>}
             </div>
           </div>
 
-          {/* Статус и Длительность */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>Тип ТК (Статус)</Label>
-              <Select value={form.tkType} onValueChange={(v) => set("tkType", v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ГМ">ГМ</SelectItem>
-                  <SelectItem value="СМ">СМ</SelectItem>
-                  <SelectItem value="ГМ+СМ">ГМ+СМ</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          {/* 4. Заказчик */}
+          <div className="grid gap-1.5">
+            <Label>Заказчик <span className="text-destructive">*</span></Label>
+            <Input
+              placeholder="Введите название заказчика"
+              value={form.client}
+              onChange={(e) => set("client", e.target.value)}
+              className={cn(errors.client && "border-destructive")}
+            />
+            {errors.client && <p className="text-xs text-destructive">{errors.client}</p>}
+          </div>
 
+          {/* 5. Длительность, 6. Формат, 7. Тип */}
+          <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label>Длительность <span className="text-destructive">*</span></Label>
               <Select value={form.duration} onValueChange={(v) => set("duration", v)}>
@@ -244,39 +226,63 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
                 </SelectTrigger>
                 <SelectContent>
                   {DURATION_OPTIONS.map((sec) => (
-                    <SelectItem key={sec} value={String(sec)}>{sec} сек</SelectItem>
+                    <SelectItem key={sec} value={String(sec)}>
+                      {sec} сек
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {errors.duration && <p className="text-xs text-destructive">{errors.duration}</p>}
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Платник / Не платник (в примечании)</Label>
-              <Select value={form.payer} onValueChange={(v) => set("payer", v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
+              <Label>Формат <span className="text-destructive">*</span></Label>
+              <Select value={form.format} onValueChange={(v) => set("format", v)}>
+                <SelectTrigger className={cn(errors.format && "border-destructive")}>
+                  <SelectValue placeholder="Выбрать" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Платник">Платник</SelectItem>
-                  <SelectItem value="Не платник">Не платник</SelectItem>
+                  {FORMAT_OPTIONS.map((fmt) => (
+                    <SelectItem key={fmt} value={fmt}>
+                      {fmt}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {errors.format && <p className="text-xs text-destructive">{errors.format}</p>}
             </div>
-            <div />
+
+            <div className="grid gap-1.5">
+              <Label>Тип <span className="text-destructive">*</span></Label>
+              <Select value={form.type} onValueChange={(v) => set("type", v)}>
+                <SelectTrigger className={cn(errors.type && "border-destructive")}>
+                  <SelectValue placeholder="Выбрать" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.type && <p className="text-xs text-destructive">{errors.type}</p>}
+            </div>
           </div>
 
-          {/* Номера ТК */}
+          {/* 8. Список ТК */}
           <div className="grid gap-1.5">
-            <Label>Номера торговых центров</Label>
+            <Label>Список ТК <span className="text-destructive">*</span></Label>
             <Input
-              placeholder="Например: 101, 102, 105"
+              placeholder="Например: 1, 2, 15, 104"
               value={form.shoppingCenterNumbers}
               onChange={(e) => set("shoppingCenterNumbers", e.target.value)}
+              className={cn(errors.shoppingCenterNumbers && "border-destructive")}
             />
-            <p className="text-xs text-muted-foreground">Введите номера через запятую</p>
+            <p className="text-xs text-muted-foreground">Укажите номера ТК через запятую</p>
+            {errors.shoppingCenterNumbers && (
+              <p className="text-xs text-destructive">{errors.shoppingCenterNumbers}</p>
+            )}
           </div>
         </div>
 
@@ -285,8 +291,8 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
             Отмена
           </Button>
           <Button onClick={handleSubmit} disabled={loading}>
-            <PlusIcon className="w-4 h-4 mr-2" />
-            {loading ? "Сохранение..." : "Добавить"}
+            <CheckIcon className="w-4 h-4 mr-2" />
+            {loading ? "Сохранение..." : "Сохранить"}
           </Button>
         </DialogFooter>
       </DialogContent>
