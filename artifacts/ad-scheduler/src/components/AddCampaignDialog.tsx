@@ -13,6 +13,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { getApiUrl } from "@/lib/api"
+import { MASTER_TK_LIST } from "@/lib/constants"
 
 export const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
 export const FORMAT_OPTIONS = ["ГМ", "СМ", "част.ГМ", "част.СМ"] as const
@@ -60,6 +61,20 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
     setErrors((prev) => ({ ...prev, [key]: undefined }))
   }
 
+  const fillTkByFormat = (fmt: "ГМ" | "СМ") => {
+    const nums = MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number)
+    set("shoppingCenterNumbers", nums.join(", "))
+  }
+
+  const handleFormatChange = (v: string) => {
+    set("format", v)
+    if (v === "ГМ") {
+      fillTkByFormat("ГМ")
+    } else if (v === "СМ") {
+      fillTkByFormat("СМ")
+    }
+  }
+
   const validate = (): boolean => {
     const errs: Partial<Record<keyof FormState, string>> = {}
     if (!form.name.trim()) errs.name = "Введите название"
@@ -95,7 +110,7 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
         duration: Number(form.duration),
         tkType: form.format,
         tk_type: form.format,
-        status: form.type, // "Платник" | "Не платник"
+        status: form.type,
         shoppingCenterNumbers: scNumbers,
         note: form.type === "Платник" ? "платный" : "не платный",
       }
@@ -237,7 +252,7 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
 
             <div className="grid gap-1.5">
               <Label>Формат <span className="text-destructive">*</span></Label>
-              <Select value={form.format} onValueChange={(v) => set("format", v)}>
+              <Select value={form.format} onValueChange={handleFormatChange}>
                 <SelectTrigger className={cn(errors.format && "border-destructive")}>
                   <SelectValue placeholder="Выбрать" />
                 </SelectTrigger>
@@ -272,14 +287,43 @@ export function AddCampaignDialog({ open, onOpenChange }: Props) {
 
           {/* 8. Список ТК */}
           <div className="grid gap-1.5">
-            <Label>Список ТК <span className="text-destructive">*</span></Label>
+            <div className="flex items-center justify-between">
+              <Label>Список ТК <span className="text-destructive">*</span></Label>
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => fillTkByFormat("ГМ")}
+                  className="text-primary hover:underline"
+                >
+                  Все ГМ (94)
+                </button>
+                <span className="text-muted-foreground">|</span>
+                <button
+                  type="button"
+                  onClick={() => fillTkByFormat("СМ")}
+                  className="text-primary hover:underline"
+                >
+                  Все СМ (79)
+                </button>
+                <span className="text-muted-foreground">|</span>
+                <button
+                  type="button"
+                  onClick={() => set("shoppingCenterNumbers", "")}
+                  className="text-muted-foreground hover:underline"
+                >
+                  Очистить
+                </button>
+              </div>
+            </div>
             <Input
-              placeholder="Например: 1, 2, 15, 104"
+              placeholder="Например: 2, 3, 15, 104"
               value={form.shoppingCenterNumbers}
               onChange={(e) => set("shoppingCenterNumbers", e.target.value)}
               className={cn(errors.shoppingCenterNumbers && "border-destructive")}
             />
-            <p className="text-xs text-muted-foreground">Укажите номера ТК через запятую</p>
+            <p className="text-xs text-muted-foreground">
+              При выборе формата ГМ или СМ список заполняется автоматически (для част.ГМ / част.СМ укажите номера через запятую)
+            </p>
             {errors.shoppingCenterNumbers && (
               <p className="text-xs text-destructive">{errors.shoppingCenterNumbers}</p>
             )}
