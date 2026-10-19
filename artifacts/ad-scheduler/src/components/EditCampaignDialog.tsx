@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, PlusIcon } from "lucide-react"
+import { CalendarIcon, CheckIcon } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,8 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { useToast } from "@/hooks/use-toast"
-import { cn } from "@/lib/utils"
 import { getApiUrl } from "@/lib/api"
+import { DURATION_OPTIONS, FORMAT_OPTIONS, TYPE_OPTIONS } from "./AddCampaignDialog"
 
 interface Props {
   open: boolean
@@ -20,13 +20,29 @@ interface Props {
   campaignId: number | null
 }
 
-const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45]
-
 export default function EditCampaignDialog({ open, onOpenChange, campaignId }: Props) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState<any>({ name: '', client: '', startDate: undefined, endDate: undefined, status: 'запланировано', tkType: 'ГМ', duration: '', shoppingCenterNumbers: '', payer: 'Не платник', note: '' })
+  const [form, setForm] = useState<{
+    name: string
+    startDate: Date | undefined
+    endDate: Date | undefined
+    client: string
+    duration: string
+    format: string
+    type: string
+    shoppingCenterNumbers: string
+  }>({
+    name: "",
+    startDate: undefined,
+    endDate: undefined,
+    client: "",
+    duration: "30",
+    format: "ГМ",
+    type: "Не платник",
+    shoppingCenterNumbers: "",
+  })
 
   useEffect(() => {
     if (!campaignId) return
@@ -35,70 +51,71 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
       .then((r) => r.json())
       .then((data) => {
         if (!mounted) return
-        // Determine payer vs schedule status compatibility
-        const noteStr: string = data.note || ''
-        let payerVal = 'Не платник'
-        let statusVal = ''
-        // If backend stored payer in status (legacy), detect
-        if (data.status === 'Платник' || data.status === 'Не платник') {
-          payerVal = data.status
-        } else if (data.status) {
-          statusVal = data.status
-        }
-        // If note contains payer token, prefer it
-        if (noteStr.includes('Платник')) payerVal = 'Платник'
-        else if (noteStr.includes('Не платник')) payerVal = 'Не платник'
+        const isPaid =
+          data.status === "Платник" ||
+          data.status === "платный" ||
+          (data.note && data.note.toLowerCase().includes("платн") && !data.note.toLowerCase().includes("не "))
 
         setForm({
-          name: data.name || '',
-          client: data.client || '',
+          name: data.name || "",
           startDate: data.startDate ? new Date(data.startDate) : undefined,
           endDate: data.endDate ? new Date(data.endDate) : undefined,
-          status: statusVal || '',
-          tkType: data.tkType || (data as any).tk_type || 'ГМ',
-          duration: String(data.duration || ''),
-          shoppingCenterNumbers: (data.shoppingCenters || []).map((s:any)=>s.number).join(', '),
-          payer: payerVal,
-          note: data.note || ''
+          client: data.client || "",
+          duration: String(data.duration || "30"),
+          format: data.tkType || data.tk_type || "ГМ",
+          type: isPaid ? "Платник" : "Не платник",
+          shoppingCenterNumbers: (data.shoppingCenters || []).map((s: any) => s.number).join(", "),
         })
       })
       .catch(() => {})
-    return () => { mounted = false }
+    return () => {
+      mounted = false
+    }
   }, [campaignId])
 
-  const set = (key: string, value: any) => setForm((prev:any)=>({...prev,[key]:value}))
+  const set = (key: string, value: any) => setForm((prev) => ({ ...prev, [key]: value }))
 
   const handleSubmit = async () => {
-    // basic validation
-    if (!form.name.trim()) return toast({ title: 'Введите название', variant: 'destructive' })
+    if (!form.name.trim()) return toast({ title: "Введите название", variant: "destructive" })
+    if (!form.startDate || !form.endDate) return toast({ title: "Выберите даты старта и окончания", variant: "destructive" })
+    if (form.startDate > form.endDate) return toast({ title: "Дата окончания раньше даты старта", variant: "destructive" })
+
     setLoading(true)
     try {
-      const scNumbers = form.shoppingCenterNumbers.split(',').map((s:string)=>s.trim()).filter(Boolean)
-        const cleanedNote = (form.note || '').replace(/\bПлатник\b|\bНе платник\b/g, '').trim();
+      const scNumbers = form.shoppingCenterNumbers
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+
       const body = {
         name: form.name.trim(),
+        startDate: format(form.startDate, "yyyy-MM-dd"),
+        endDate: format(form.endDate, "yyyy-MM-dd"),
         client: form.client.trim(),
-        startDate: form.startDate ? format(form.startDate, 'yyyy-MM-dd') : null,
-        endDate: form.endDate ? format(form.endDate, 'yyyy-MM-dd') : null,
-        // send schedule status in status field
-        status: form.status,
         duration: Number(form.duration),
+        tkType: form.format,
+        tk_type: form.format,
+        status: form.type,
         shoppingCenterNumbers: scNumbers,
-        tkType: form.tkType,
-        tk_type: form.tkType,
-        // keep payer inside note per spec
-        note: (cleanedNote ? cleanedNote + ' | ' : '') + form.payer
+        note: form.type === "Платник" ? "платный" : "не платный",
       }
-      const res = await fetch(getApiUrl(`/api/campaigns/${campaignId}`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+      const res = await fetch(getApiUrl(`/api/campaigns/${campaignId}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
       if (!res.ok) {
-        const data = await res.json().catch(()=> ({}))
+        const data = await res.json().catch(() => ({}))
         throw new Error(data.error || `Ошибка ${res.status}`)
       }
-      toast({ title: 'Обновлено', variant: 'success' })
-      queryClient.invalidateQueries(['campaigns'])
+
+      toast({ title: "Данные обновлены", variant: "success" })
+      queryClient.invalidateQueries()
       onOpenChange(false)
-    } catch (err:any) {
-      toast({ title: 'Ошибка', description: String(err.message || err), variant: 'destructive' })
+    } catch (err: any) {
+      toast({ title: "Ошибка", description: String(err.message || err), variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -106,34 +123,35 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[540px]">
         <DialogHeader>
-          <DialogTitle>Редактировать РК</DialogTitle>
+          <DialogTitle>Редактирование данных кампании</DialogTitle>
         </DialogHeader>
+
         <div className="grid gap-4 py-2">
           <div className="grid gap-1.5">
             <Label>Название</Label>
-            <Input value={form.name} onChange={(e:any)=>set('name', e.target.value)} />
+            <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
           </div>
-          <div className="grid gap-1.5">
-            <Label>Заказчик</Label>
-            <Input value={form.client} onChange={(e:any)=>set('client', e.target.value)} />
-          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>Дата старта</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={"justify-start text-left font-normal"}>
+                  <Button variant="outline" className="justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {form.startDate ? format(form.startDate, 'dd.MM.yyyy', { locale: ru }) : 'Выбрать'}
+                    {form.startDate ? format(form.startDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <div className="p-2">
-                    <Calendar mode="single" selected={form.startDate} onSelect={(d:any)=>set('startDate', d)} initialFocus />
-                    <div className="mt-2"><Input type="date" value={form.startDate ? form.startDate.toISOString().slice(0,10) : ''} onChange={(e:any)=>set('startDate', e.target.value ? new Date(e.target.value) : undefined)} /></div>
-                  </div>
+                  <Calendar
+                    mode="single"
+                    selected={form.startDate}
+                    onSelect={(d) => set("startDate", d)}
+                    locale={ru}
+                    initialFocus
+                  />
                 </PopoverContent>
               </Popover>
             </div>
@@ -142,84 +160,99 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
               <Label>Дата окончания</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={"justify-start text-left font-normal"}>
+                  <Button variant="outline" className="justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {form.endDate ? format(form.endDate, 'dd.MM.yyyy', { locale: ru }) : 'Выбрать'}
+                    {form.endDate ? format(form.endDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <div className="p-2">
-                    <Calendar mode="single" selected={form.endDate} onSelect={(d:any)=>set('endDate', d)} initialFocus />
-                    <div className="mt-2"><Input type="date" value={form.endDate ? form.endDate.toISOString().slice(0,10) : ''} onChange={(e:any)=>set('endDate', e.target.value ? new Date(e.target.value) : undefined)} /></div>
-                  </div>
+                  <Calendar
+                    mode="single"
+                    selected={form.endDate}
+                    onSelect={(d) => set("endDate", d)}
+                    locale={ru}
+                    initialFocus
+                    disabled={form.startDate ? { before: form.startDate } : undefined}
+                  />
                 </PopoverContent>
               </Popover>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>Статус</Label>
-              <Select value={form.status} onValueChange={(v:any)=>set('status', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="запланировано">запланировано</SelectItem>
-                  <SelectItem value="опубликовано">опубликовано</SelectItem>
-                  <SelectItem value="завершено">завершено</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>Тип ТК</Label>
-              <Select value={form.tkType} onValueChange={(v:any)=>set('tkType', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ГМ">ГМ</SelectItem>
-                  <SelectItem value="СМ">СМ</SelectItem>
-                  <SelectItem value="ГМ+СМ">ГМ+СМ</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid gap-1.5">
+            <Label>Заказчик</Label>
+            <Input value={form.client} onChange={(e) => set("client", e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label>Длительность</Label>
-              <Select value={form.duration} onValueChange={(v:any)=>set('duration', v)}>
-                <SelectTrigger><SelectValue placeholder="Выбрать" /></SelectTrigger>
-                <SelectContent>{DURATION_OPTIONS.map(sec=> <SelectItem key={sec} value={String(sec)}>{sec} сек</SelectItem>)}</SelectContent>
+              <Select value={form.duration} onValueChange={(v) => set("duration", v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выбрать" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DURATION_OPTIONS.map((sec) => (
+                    <SelectItem key={sec} value={String(sec)}>
+                      {sec} сек
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
 
             <div className="grid gap-1.5">
-              <Label>Платник / Не платник (в примечании)</Label>
-              <Select value={form.payer} onValueChange={(v:any)=>set('payer', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>Формат</Label>
+              <Select value={form.format} onValueChange={(v) => set("format", v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выбрать" />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Платник">Платник</SelectItem>
-                  <SelectItem value="Не платник">Не платник</SelectItem>
+                  {FORMAT_OPTIONS.map((fmt) => (
+                    <SelectItem key={fmt} value={fmt}>
+                      {fmt}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>Тип</Label>
+              <Select value={form.type} onValueChange={(v) => set("type", v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выбрать" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="grid gap-1.5">
-            <Label>Номера ТК</Label>
-            <Input value={form.shoppingCenterNumbers} onChange={(e:any)=>set('shoppingCenterNumbers', e.target.value)} />
-            <p className="text-xs text-muted-foreground">Введите номера через запятую</p>
+            <Label>Список ТК</Label>
+            <Input
+              placeholder="Например: 1, 2, 15, 104"
+              value={form.shoppingCenterNumbers}
+              onChange={(e) => set("shoppingCenterNumbers", e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Укажите номера ТК через запятую</p>
           </div>
-
-          <div className="grid gap-1.5">
-            <Label>Примечание</Label>
-            <Input value={form.note} onChange={(e:any)=>set('note', e.target.value)} />
-          </div>
-
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={()=>onOpenChange(false)} disabled={loading}>Отмена</Button>
-          <Button onClick={handleSubmit} disabled={loading}><PlusIcon className="w-4 h-4 mr-2" />{loading ? 'Сохранение...' : 'Сохранить'}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            <CheckIcon className="w-4 h-4 mr-2" />
+            {loading ? "Сохранение..." : "Сохранить"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
