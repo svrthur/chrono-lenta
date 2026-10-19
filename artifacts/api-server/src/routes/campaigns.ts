@@ -11,6 +11,15 @@ import {
 
 const router: IRouter = Router();
 
+const ALLOWED_FORMATS = ["ГМ", "СМ", "част.ГМ", "част.СМ", "ГМ+СМ"];
+
+function normalizePayerStatus(raw: unknown): "Платник" | "Не платник" {
+  if (!raw) return "Не платник";
+  const s = String(raw).trim().toLowerCase();
+  if (s === "платный" || s === "платник") return "Платник";
+  return "Не платник";
+}
+
 router.get("/campaigns", async (req, res): Promise<void> => {
   const parsed = ListCampaignsQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -27,7 +36,8 @@ router.get("/campaigns", async (req, res): Promise<void> => {
     rows = rows.filter((c) => c.startDate <= today && c.endDate >= today);
   }
   if (status) {
-    rows = rows.filter((c) => c.status === status);
+    const normStatus = normalizePayerStatus(status);
+    rows = rows.filter((c) => normalizePayerStatus(c.status) === normStatus);
   }
   if (search) {
     const lower = search.toLowerCase();
@@ -38,35 +48,65 @@ router.get("/campaigns", async (req, res): Promise<void> => {
     );
   }
 
-  res.json(rows);
+  // Подгружаем список ТК для всех кампаний
+  const allPlacements = await db
+    .select({
+      campaignId: campaignPlacementsTable.campaignId,
+      sc: shoppingCentersTable,
+    })
+    .from(campaignPlacementsTable)
+    .innerJoin(
+      shoppingCentersTable,
+      eq(campaignPlacementsTable.shoppingCenterId, shoppingCentersTable.id),
+    );
+
+  const scByCampaign = new Map<number, (typeof shoppingCentersTable.$inferSelect)[]>();
+  for (const p of allPlacements) {
+    if (!scByCampaign.has(p.campaignId)) {
+      scByCampaign.set(p.campaignId, []);
+    }
+    scByCampaign.get(p.campaignId)!.push(p.sc);
+  }
+
+  const enrichedRows = rows.map((r) => ({
+    ...r,
+    shoppingCenters: scByCampaign.get(r.id) ?? [],
+  }));
+
+  res.json(enrichedRows);
 });
 
 router.post("/campaigns", async (req, res): Promise<void> => {
-  const parsed = CreateCampaignBody.safeParse(req.body);
+  const normalizedBody = {
+    ...req.body,
+    status: normalizePayerStatus(req.body?.status ?? req.body?.type),
+  };
+
+  const parsed = CreateCampaignBody.safeParse(normalizedBody);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
-  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
-  // optional campaign-level TK type
-  const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type)) as string | undefined;
-  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' || tkTypeRaw === 'ГМ+СМ' ? tkTypeRaw : undefined;
+  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers } = parsed.data;
+  const note = (req.body?.note as string | undefined) ?? null;
+  const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type || req.body.format)) as string | undefined;
+  const tkType = tkTypeRaw && ALLOWED_FORMATS.includes(tkTypeRaw) ? tkTypeRaw : null;
 
   if (startDate > endDate) {
-    res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
+    res.status(400).json({ error: "Дата старта не может быть позже даты окончания" });
     return;
   }
 
-  // Resolve SC numbers to IDs, create placeholders for unknown ones
   const existingSCs = await db.select().from(shoppingCentersTable);
   const scByNumber = new Map(existingSCs.map((sc) => [sc.number, sc.id]));
 
   const unknownNumbers = shoppingCenterNumbers.filter((n) => !scByNumber.has(n));
   if (unknownNumbers.length > 0) {
+    const defaultFormat = tkType && tkType.includes("СМ") ? "СМ" : "ГМ";
     const inserted = await db
       .insert(shoppingCentersTable)
-      .values(unknownNumbers.map((n) => ({ number: n, city: "Неизвестный", format: "ГМ" as const, address: null })))
+      .values(unknownNumbers.map((n) => ({ number: n, city: "Неизвестный", format: defaultFormat, address: null })))
       .onConflictDoNothing()
       .returning();
     for (const sc of inserted) scByNumber.set(sc.number, sc.id);
@@ -74,7 +114,7 @@ router.post("/campaigns", async (req, res): Promise<void> => {
 
   const [campaign] = await db
     .insert(campaignsTable)
-    .values({ name, startDate, endDate, client, status, duration, note: note ?? null, tkType: tkType ?? null })
+    .values({ name, startDate, endDate, client, status, duration, note, tkType })
     .returning();
 
   if (shoppingCenterNumbers.length > 0) {
@@ -116,6 +156,9 @@ router.post("/campaigns/bulk-delete", async (req, res): Promise<void> => {
     .where(inArray(campaignsTable.id, ids))
     .returning();
 
+  const { broadcastDataUpdated } = await import("../lib/sse.js");
+  broadcastDataUpdated();
+
   res.json({ success: true, deleted: deleted.length });
 });
 
@@ -137,7 +180,6 @@ router.get("/campaigns/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  // Get placements with shopping center data
   const placements = await db
     .select({ sc: shoppingCentersTable })
     .from(campaignPlacementsTable)
@@ -170,10 +212,12 @@ router.delete("/campaigns/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const { broadcastDataUpdated } = await import("../lib/sse.js");
+  broadcastDataUpdated();
+
   res.json({ success: true, deleted: 1 });
 });
 
-// Update existing campaign and its placements
 router.put("/campaigns/:id", async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const idParsed = parseInt(rawId, 10);
@@ -182,40 +226,44 @@ router.put("/campaigns/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const parsed = CreateCampaignBody.safeParse(req.body);
+  const normalizedBody = {
+    ...req.body,
+    status: normalizePayerStatus(req.body?.status ?? req.body?.type),
+  };
+
+  const parsed = CreateCampaignBody.safeParse(normalizedBody);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
-  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers, note } = parsed.data;
-  // optional campaign-level TK type
-  const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type)) as string | undefined;
-  const tkType = tkTypeRaw === 'ГМ' || tkTypeRaw === 'СМ' || tkTypeRaw === 'ГМ+СМ' ? tkTypeRaw : undefined;
+  const { name, startDate, endDate, client, status, duration, shoppingCenterNumbers } = parsed.data;
+  const note = (req.body?.note as string | undefined) ?? null;
+  const tkTypeRaw = (req.body && (req.body.tkType || req.body.tk_type || req.body.format)) as string | undefined;
+  const tkType = tkTypeRaw && ALLOWED_FORMATS.includes(tkTypeRaw) ? tkTypeRaw : null;
 
   if (startDate > endDate) {
-    res.status(400).json({ error: "Дата начала не может быть позже даты окончания" });
+    res.status(400).json({ error: "Дата старта не может быть позже даты окончания" });
     return;
   }
 
-  // Ensure shopping centers exist
   const existingSCs = await db.select().from(shoppingCentersTable);
   const scByNumber = new Map(existingSCs.map((sc) => [sc.number, sc.id]));
 
   const unknownNumbers = shoppingCenterNumbers.filter((n) => !scByNumber.has(n));
   if (unknownNumbers.length > 0) {
+    const defaultFormat = tkType && tkType.includes("СМ") ? "СМ" : "ГМ";
     const inserted = await db
       .insert(shoppingCentersTable)
-      .values(unknownNumbers.map((n) => ({ number: n, city: "Неизвестный", format: "ГМ" as const, address: null })))
+      .values(unknownNumbers.map((n) => ({ number: n, city: "Неизвестный", format: defaultFormat, address: null })))
       .onConflictDoNothing()
       .returning();
     for (const sc of inserted) scByNumber.set(sc.number, sc.id);
   }
 
-  // Update campaign
   const [updated] = await db
     .update(campaignsTable)
-    .set({ name, startDate, endDate, client, status, duration, note: note ?? null, tkType: tkType ?? null })
+    .set({ name, startDate, endDate, client, status, duration, note, tkType })
     .where(eq(campaignsTable.id, idParsed))
     .returning();
 
@@ -224,7 +272,6 @@ router.put("/campaigns/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  // Replace placements: delete existing, insert new
   await db.delete(campaignPlacementsTable).where(eq(campaignPlacementsTable.campaignId, idParsed));
 
   if (shoppingCenterNumbers.length > 0) {
