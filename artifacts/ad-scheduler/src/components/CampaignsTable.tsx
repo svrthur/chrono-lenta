@@ -1,9 +1,14 @@
 import React, { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { format } from "date-fns"
+import { ru } from "date-fns/locale"
+import { CalendarIcon } from "lucide-react"
 import EditCampaignDialog from "./EditCampaignDialog"
 import { getApiUrl } from "@/lib/api"
 import { FORMAT_OPTIONS } from "./AddCampaignDialog"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
 
 type Campaign = {
   id: number
@@ -17,6 +22,8 @@ type Campaign = {
   note?: string | null
   shoppingCenters?: { id: number; number: string; city: string; format: string }[]
 }
+
+type StatusLabel = "опубликовано" | "запланировано" | "завершён"
 
 async function fetchCampaigns(): Promise<Campaign[]> {
   const res = await fetch(getApiUrl("/api/campaigns"))
@@ -37,9 +44,14 @@ export function CampaignsTable() {
   const [selected, setSelected] = useState<Record<number, boolean>>({})
   const [editingId, setEditingId] = useState<number | null>(null)
 
+  // Дата для расчета статуса РК
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [filterStatus, setFilterStatus] = useState<string>("")
   const [filterType, setFilterType] = useState<string>("")
   const [filterClient, setFilterClient] = useState<string>("")
   const [filterFormat, setFilterFormat] = useState<string>("")
+
+  const dateIso = format(selectedDate, "yyyy-MM-dd")
 
   const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectAll = () => {
@@ -96,18 +108,49 @@ export function CampaignsTable() {
       "—"
     const tkListStr = (r.shoppingCenters || []).map((s) => s.number).join(", ")
 
+    let computedStatus: StatusLabel = "опубликовано"
+    if (r.startDate > dateIso) {
+      computedStatus = "запланировано"
+    } else if (r.endDate < dateIso) {
+      computedStatus = "завершён"
+    }
+
     return {
       ...r,
       _typeLabel: typeLabel,
       _formatLabel: formatLabel,
       _tkListStr: tkListStr,
+      _statusLabel: computedStatus,
     }
   })
 
   const filteredRows = normalizedRows
+    .filter((r) => (filterStatus ? r._statusLabel === filterStatus : true))
     .filter((r) => (filterType ? r._typeLabel === filterType : true))
     .filter((r) => (filterClient ? r.client === filterClient : true))
     .filter((r) => (filterFormat ? r._formatLabel === filterFormat : true))
+
+  const renderStatusBadge = (status: StatusLabel) => {
+    if (status === "опубликовано") {
+      return (
+        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+          опубликовано
+        </span>
+      )
+    }
+    if (status === "запланировано") {
+      return (
+        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30">
+          запланировано
+        </span>
+      )
+    }
+    return (
+      <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border border-zinc-500/30">
+        завершён
+      </span>
+    )
+  }
 
   return (
     <div className="overflow-auto bg-card rounded-lg border shadow-sm p-4">
@@ -119,15 +162,50 @@ export function CampaignsTable() {
         }}
       />
 
-      {/* Меню фильтров таблицы — теперь отображается всегда */}
+      {/* Меню фильтров таблицы и календарь перерасчета */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Дата проверки</label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs font-medium">
+                  <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-primary" />
+                  {format(selectedDate, "dd.MM.yyyy", { locale: ru })}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(d) => d && setSelectedDate(d)}
+                  locale={ru}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Статус РК</label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="border rounded px-2.5 py-1 text-sm bg-background h-8"
+            >
+              <option value="">Все статусы</option>
+              <option value="опубликовано">опубликовано</option>
+              <option value="запланировано">запланировано</option>
+              <option value="завершён">завершён</option>
+            </select>
+          </div>
+
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Заказчик</label>
             <select
               value={filterClient}
               onChange={(e) => setFilterClient(e.target.value)}
-              className="border rounded px-2.5 py-1.5 text-sm bg-background"
+              className="border rounded px-2.5 py-1 text-sm bg-background h-8"
             >
               <option value="">Все заказчики</option>
               {clients.map((c) => (
@@ -143,7 +221,7 @@ export function CampaignsTable() {
             <select
               value={filterFormat}
               onChange={(e) => setFilterFormat(e.target.value)}
-              className="border rounded px-2.5 py-1.5 text-sm bg-background"
+              className="border rounded px-2.5 py-1 text-sm bg-background h-8"
             >
               <option value="">Все форматы</option>
               {FORMAT_OPTIONS.map((f) => (
@@ -159,7 +237,7 @@ export function CampaignsTable() {
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="border rounded px-2.5 py-1.5 text-sm bg-background"
+              className="border rounded px-2.5 py-1 text-sm bg-background h-8"
             >
               <option value="">Все типы</option>
               <option value="платный">платный</option>
@@ -193,60 +271,62 @@ export function CampaignsTable() {
         </div>
       )}
 
-      <table className="w-full table-auto text-sm">
+      <table className="w-full table-auto text-sm border-collapse">
         <thead className="bg-muted/40">
           <tr>
-            <th className="p-2.5 text-left w-8">
+            <th className="p-2 text-left w-8">
               <input
                 type="checkbox"
                 checked={rows.length > 0 && selectedIds.length === rows.length}
                 onChange={(e) => (e.target.checked ? selectAll() : clearAll())}
               />
             </th>
-            <th className="p-2.5 text-left">#</th>
-            <th className="p-2.5 text-left">Название</th>
-            <th className="p-2.5 text-left">Дата старта</th>
-            <th className="p-2.5 text-left">Дата окончания</th>
-            <th className="p-2.5 text-left">Заказчик</th>
-            <th className="p-2.5 text-left">Длительность</th>
-            <th className="p-2.5 text-left">Формат</th>
-            <th className="p-2.5 text-left">Тип</th>
-            <th className="p-2.5 text-left">Список ТК</th>
-            <th className="p-2.5 text-left">Действия</th>
+            <th className="p-2 text-left">#</th>
+            <th className="p-2 text-left">Название</th>
+            <th className="p-2 text-left">Статус</th>
+            <th className="p-2 text-left">Дата старта</th>
+            <th className="p-2 text-left">Дата окончания</th>
+            <th className="p-2 text-left">Заказчик</th>
+            <th className="p-2 text-left">Длительность</th>
+            <th className="p-2 text-left">Формат</th>
+            <th className="p-2 text-left">Тип</th>
+            <th className="p-2 text-left">Список ТК</th>
+            <th className="p-2 text-left">Действия</th>
           </tr>
         </thead>
         <tbody>
           {isLoading && (
             <tr>
-              <td colSpan={11} className="p-6 text-center text-muted-foreground">
+              <td colSpan={12} className="p-6 text-center text-muted-foreground">
                 Загрузка данных...
               </td>
             </tr>
           )}
           {!isLoading && filteredRows.length === 0 && (
             <tr>
-              <td colSpan={11} className="p-6 text-center text-muted-foreground">
-                Нет загруженных рекламных кампаний
+              <td colSpan={12} className="p-6 text-center text-muted-foreground">
+                Нет рекламных кампаний
               </td>
             </tr>
           )}
           {filteredRows.map((r, idx) => (
             <tr key={r.id} className="border-t hover:bg-muted/20">
-              <td className="p-2.5">
+              <td className="p-2">
                 <input type="checkbox" checked={!!selected[r.id]} onChange={() => toggle(r.id)} />
               </td>
-              <td className="p-2.5 text-muted-foreground">{idx + 1}</td>
-              <td className="p-2.5 font-medium">{r.name}</td>
-              <td className="p-2.5">{r.startDate}</td>
-              <td className="p-2.5">{r.endDate}</td>
-              <td className="p-2.5">{r.client}</td>
-              <td className="p-2.5">{r.duration} сек</td>
-              <td className="p-2.5">{r._formatLabel}</td>
-              <td className="p-2.5">{r._typeLabel}</td>
-              <td className="p-2.5 max-w-[260px] truncate" title={r._tkListStr}>
+              <td className="p-2 text-muted-foreground">{idx + 1}</td>
+              <td className="p-2 font-medium">{r.name}</td>
+              <td className="p-2">{renderStatusBadge(r._statusLabel)}</td>
+              <td className="p-2">{r.startDate}</td>
+              <td className="p-2">{r.endDate}</td>
+              <td className="p-2">{r.client}</td>
+              <td className="p-2 font-mono">{r.duration} сек</td>
+              <td className="p-2">{r._formatLabel}</td>
+              <td className="p-2">{r._typeLabel}</td>
+              <td className="p-2 max-w-[240px] truncate" title={r._tkListStr}>
                 {r._tkListStr || "—"}
               </td>
-              <td className="p-2.5">
+              <td className="p-2">
                 <div className="flex gap-3 items-center">
                   <button
                     className="text-sm text-blue-600 hover:underline"
