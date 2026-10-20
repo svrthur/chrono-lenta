@@ -22,6 +22,14 @@ export const CITIES = [
   "Саратов",
 ]
 
+// Лимиты хронометража на 1 ТК (кратные 5 секундам):
+// 180 сек всего = 125 сек (70% платно) + 55 сек (30% бесплатно)
+export const TK_QUOTAS = {
+  TOTAL_MAX: 180,
+  PAID_MAX: 125,
+  FREE_MAX: 55,
+}
+
 export const DURATION_THRESHOLDS = {
   GREEN_MAX: 179,
   YELLOW_MAX: 239,
