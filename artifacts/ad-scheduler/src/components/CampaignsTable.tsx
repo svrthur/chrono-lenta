@@ -1,11 +1,11 @@
 import React, { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { format } from "date-fns"
+import { format, addDays } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, Download, Copy } from "lucide-react"
 import EditCampaignDialog from "./EditCampaignDialog"
 import { getApiUrl } from "@/lib/api"
-import { FORMAT_OPTIONS } from "./AddCampaignDialog"
+import { FORMAT_OPTIONS, CampaignInitialData } from "./AddCampaignDialog"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -34,7 +34,11 @@ async function fetchCampaigns(): Promise<Campaign[]> {
   return res.json()
 }
 
-export function CampaignsTable() {
+interface CampaignsTableProps {
+  onDuplicate?: (data: CampaignInitialData) => void
+}
+
+export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const queryClient = useQueryClient()
   const { data: rows = [], isLoading, isError, error, refetch } = useQuery<Campaign[]>({
     queryKey: ["campaigns"],
@@ -44,14 +48,15 @@ export function CampaignsTable() {
   const [selected, setSelected] = useState<Record<number, boolean>>({})
   const [editingId, setEditingId] = useState<number | null>(null)
 
-  // Дата для расчета статуса РК
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [filterStatus, setFilterStatus] = useState<string>("")
   const [filterType, setFilterType] = useState<string>("")
   const [filterClient, setFilterClient] = useState<string>("")
   const [filterFormat, setFilterFormat] = useState<string>("")
+  const [onlyExpiringSoon, setOnlyExpiringSoon] = useState<boolean>(false)
 
   const dateIso = format(selectedDate, "yyyy-MM-dd")
+  const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
 
   const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectAll = () => {
@@ -105,7 +110,7 @@ export function CampaignsTable() {
       r.tkType ||
       (r as any).tk_type ||
       Array.from(new Set((r.shoppingCenters || []).map((s) => s.format))).join(", ") ||
-      "—"
+      "ГМ"
     const tkListStr = (r.shoppingCenters || []).map((s) => s.number).join(", ")
 
     let computedStatus: StatusLabel = "опубликовано"
@@ -115,12 +120,17 @@ export function CampaignsTable() {
       computedStatus = "завершён"
     }
 
+    const isExpiringSoon =
+      computedStatus === "опубликовано" && r.endDate >= dateIso && r.endDate <= in3DaysIso
+
     return {
       ...r,
+      _isPaid: Boolean(isPaid),
       _typeLabel: typeLabel,
       _formatLabel: formatLabel,
       _tkListStr: tkListStr,
       _statusLabel: computedStatus,
+      _isExpiringSoon: isExpiringSoon,
     }
   })
 
@@ -129,13 +139,56 @@ export function CampaignsTable() {
     .filter((r) => (filterType ? r._typeLabel === filterType : true))
     .filter((r) => (filterClient ? r.client === filterClient : true))
     .filter((r) => (filterFormat ? r._formatLabel === filterFormat : true))
+    .filter((r) => (onlyExpiringSoon ? r._isExpiringSoon : true))
 
-  const renderStatusBadge = (status: StatusLabel) => {
+  const handleExportCsv = () => {
+    const headers = [
+      "№",
+      "Название",
+      "Статус",
+      "Дата старта",
+      "Дата окончания",
+      "Заказчик",
+      "Длительность (сек)",
+      "Формат",
+      "Тип",
+      "Список ТК",
+    ]
+    const csvRows = filteredRows.map((r, idx) => [
+      idx + 1,
+      `"${(r.name || "").replace(/"/g, '""')}"`,
+      r._statusLabel,
+      r.startDate,
+      r.endDate,
+      `"${(r.client || "").replace(/"/g, '""')}"`,
+      r.duration,
+      r._formatLabel,
+      r._typeLabel,
+      `"${(r._tkListStr || "").replace(/"/g, '""')}"`,
+    ])
+    const content = "\uFEFF" + [headers.join(";"), ...csvRows.map((row) => row.join(";"))].join("\r\n")
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `кампании_${dateIso}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const renderStatusBadge = (status: StatusLabel, isExpiringSoon: boolean) => {
     if (status === "опубликовано") {
       return (
-        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
-          опубликовано
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+            опубликовано
+          </span>
+          {isExpiringSoon && (
+            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+              истекает ≤3 дн.
+            </span>
+          )}
+        </div>
       )
     }
     if (status === "запланировано") {
@@ -162,7 +215,6 @@ export function CampaignsTable() {
         }}
       />
 
-      {/* Меню фильтров таблицы и календарь перерасчета */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div>
@@ -244,9 +296,22 @@ export function CampaignsTable() {
               <option value="не платный">не платный</option>
             </select>
           </div>
+
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none h-8 px-2 border rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium">
+            <input
+              type="checkbox"
+              checked={onlyExpiringSoon}
+              onChange={(e) => setOnlyExpiringSoon(e.target.checked)}
+            />
+            Истекают ≤ 3 дн. ({normalizedRows.filter((r) => r._isExpiringSoon).length})
+          </label>
         </div>
 
         <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleExportCsv}>
+            <Download className="w-3.5 h-3.5" />
+            Скачать Excel
+          </Button>
           <span className="text-sm text-muted-foreground">Выбрано: {selectedIds.length}</span>
           {selectedIds.length > 0 && (
             <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
@@ -316,26 +381,46 @@ export function CampaignsTable() {
               </td>
               <td className="p-2 text-muted-foreground">{idx + 1}</td>
               <td className="p-2 font-medium">{r.name}</td>
-              <td className="p-2">{renderStatusBadge(r._statusLabel)}</td>
+              <td className="p-2">{renderStatusBadge(r._statusLabel, r._isExpiringSoon)}</td>
               <td className="p-2">{r.startDate}</td>
               <td className="p-2">{r.endDate}</td>
               <td className="p-2">{r.client}</td>
               <td className="p-2 font-mono">{r.duration} сек</td>
               <td className="p-2">{r._formatLabel}</td>
               <td className="p-2">{r._typeLabel}</td>
-              <td className="p-2 max-w-[240px] truncate" title={r._tkListStr}>
+              <td className="p-2 max-w-[220px] truncate" title={r._tkListStr}>
                 {r._tkListStr || "—"}
               </td>
               <td className="p-2">
-                <div className="flex gap-3 items-center">
+                <div className="flex gap-2.5 items-center">
                   <button
-                    className="text-sm text-blue-600 hover:underline"
+                    className="text-xs text-blue-600 hover:underline font-medium"
                     onClick={() => setEditingId(r.id)}
                   >
                     Редактировать
                   </button>
+                  {onDuplicate && (
+                    <button
+                      className="text-xs text-emerald-600 hover:underline font-medium flex items-center gap-0.5"
+                      onClick={() =>
+                        onDuplicate({
+                          name: `${r.name} (копия)`,
+                          startDate: r.startDate,
+                          endDate: r.endDate,
+                          client: r.client,
+                          duration: r.duration,
+                          format: r._formatLabel === "—" ? "ГМ" : r._formatLabel,
+                          type: r._isPaid ? "Платник" : "Не платник",
+                          shoppingCenterNumbers: r._tkListStr,
+                        })
+                      }
+                      title="Создать копию этой кампании"
+                    >
+                      <Copy className="w-3 h-3" /> Копировать
+                    </button>
+                  )}
                   <button
-                    className="text-sm text-red-600 hover:underline"
+                    className="text-xs text-red-600 hover:underline font-medium"
                     onClick={() => handleDelete(r.id)}
                   >
                     Удалить
