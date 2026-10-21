@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { format } from "date-fns"
+import { format, addDays } from "date-fns"
 import { ru } from "date-fns/locale"
 import {
   CalendarIcon,
@@ -10,6 +10,8 @@ import {
   Search,
   RotateCcw,
   AlertTriangle,
+  Download,
+  Clock,
 } from "lucide-react"
 import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 import { getApiUrl } from "@/lib/api"
@@ -53,7 +55,6 @@ export function RebuildAdmin() {
     queryFn: fetchCampaigns,
   })
 
-  // Режим отображения: "list" (Список ТК) или "matrix" (Матрица Кампании × ТК)
   const [viewMode, setViewMode] = useState<"list" | "matrix">("list")
 
   // Фильтры ТК
@@ -63,7 +64,7 @@ export function RebuildAdmin() {
   const [onlyWithAds, setOnlyWithAds] = useState<boolean>(false)
   const [onlyOverLimit, setOnlyOverLimit] = useState<boolean>(false)
 
-  // Выбранная дата в календаре и фильтр по статусу РК относительно этой даты
+  // Выбранная дата в календаре и фильтр по статусу РК
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [statusFilter, setStatusFilter] = useState<
     "active_and_planned" | "all" | "опубликовано" | "запланировано" | "завершён"
@@ -74,14 +75,15 @@ export function RebuildAdmin() {
   const [campaignFormatFilter, setCampaignFormatFilter] = useState<string>("")
   const [clientFilter, setClientFilter] = useState<string>("")
   const [searchQuery, setSearchQuery] = useState<string>("")
+  const [onlyExpiringSoon, setOnlyExpiringSoon] = useState<boolean>(false)
 
   // Сортировка кампаний
   const [sortBy, setSortBy] = useState<"client" | "format" | "type" | "duration" | "status" | "name">("client")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   const dateIso = format(selectedDate, "yyyy-MM-dd")
+  const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
 
-  // Вычисляем Тип (платный/не платный), Формат и Статус ("опубликовано", "запланировано", "завершён") на выбранную дату
   const enrichedCampaigns = useMemo(() => {
     return rawCampaigns.map((c) => {
       const isPaid =
@@ -103,6 +105,9 @@ export function RebuildAdmin() {
         statusOnDate = "завершён"
       }
 
+      const isExpiringSoon =
+        statusOnDate === "опубликовано" && c.endDate >= dateIso && c.endDate <= in3DaysIso
+
       return {
         ...c,
         _isPaid: Boolean(isPaid),
@@ -110,21 +115,22 @@ export function RebuildAdmin() {
         _format: formatLabel,
         _scNumbersSet: scNumbersSet,
         _statusOnDate: statusOnDate,
+        _isExpiringSoon: isExpiringSoon,
       }
     })
-  }, [rawCampaigns, dateIso])
+  }, [rawCampaigns, dateIso, in3DaysIso])
 
   const allClients = useMemo(
     () => Array.from(new Set(enrichedCampaigns.map((c) => c.client))).filter(Boolean).sort(),
     [enrichedCampaigns]
   )
 
-  // Фильтрация по заказчику/типу/формату/поиску и сортировка
   const baseFilteredCampaigns = useMemo(() => {
     const list = enrichedCampaigns.filter((c) => {
       if (campaignTypeFilter && c._type !== campaignTypeFilter) return false
       if (campaignFormatFilter && c._format !== campaignFormatFilter) return false
       if (clientFilter && c.client !== clientFilter) return false
+      if (onlyExpiringSoon && !c._isExpiringSoon) return false
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase()
         const matchName = c.name.toLowerCase().includes(q)
@@ -169,12 +175,12 @@ export function RebuildAdmin() {
     campaignTypeFilter,
     campaignFormatFilter,
     clientFilter,
+    onlyExpiringSoon,
     searchQuery,
     sortBy,
     sortDir,
   ])
 
-  // Разбивка по статусам на выбранную дату
   const publishedCampaigns = useMemo(
     () => baseFilteredCampaigns.filter((c) => c._statusOnDate === "опубликовано"),
     [baseFilteredCampaigns]
@@ -188,7 +194,6 @@ export function RebuildAdmin() {
     [baseFilteredCampaigns]
   )
 
-  // Кампании, которые выводятся в ячейках / матрице согласно выбранному фильтру статуса
   const displayedCampaigns = useMemo(() => {
     if (statusFilter === "опубликовано") return publishedCampaigns
     if (statusFilter === "запланировано") return plannedCampaigns
@@ -197,8 +202,7 @@ export function RebuildAdmin() {
     return [...publishedCampaigns, ...plannedCampaigns]
   }, [statusFilter, publishedCampaigns, plannedCampaigns, finishedCampaigns, baseFilteredCampaigns])
 
-  // Расчет загрузки каждого ТК на выбранную дату (по опубликованным на эту дату РК)
-  // Лимиты: Всего <= 180с, Платно (70%) <= 125с, Бесплатно (30%) <= 55с
+  // Расчет загрузки каждого ТК + ближайшая дата освобождения секунд
   const filteredTkRows = useMemo(() => {
     return MASTER_TK_LIST.map((tk) => {
       const activeList = publishedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
@@ -206,7 +210,6 @@ export function RebuildAdmin() {
       const finishedList = finishedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
       const shownList = displayedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
 
-      // Суммарный, платный и бесплатный хронометраж на выбранную дату (без потолка отображения)
       const paidDuration = activeList
         .filter((c) => c._isPaid)
         .reduce((sum, c) => sum + (c.duration || 0), 0)
@@ -217,7 +220,17 @@ export function RebuildAdmin() {
 
       const plannedDuration = plannedList.reduce((sum, c) => sum + (c.duration || 0), 0)
 
-      // Проверка превышения квот (180 сек всего / 125 сек платно / 55 сек бесплатно)
+      // Находим ближайшую дату окончания среди активных роликов в этом ТК
+      let earliestEndDate: string | null = null
+      let freedSeconds = 0
+      if (activeList.length > 0) {
+        const sortedEndDates = activeList.map((c) => c.endDate).sort()
+        earliestEndDate = sortedEndDates[0]
+        freedSeconds = activeList
+          .filter((c) => c.endDate === earliestEndDate)
+          .reduce((sum, c) => sum + (c.duration || 0), 0)
+      }
+
       const isOverTotal = totalDuration > TK_QUOTAS.TOTAL_MAX
       const isOverPaid = paidDuration > TK_QUOTAS.PAID_MAX
       const isOverFree = freeDuration > TK_QUOTAS.FREE_MAX
@@ -233,6 +246,8 @@ export function RebuildAdmin() {
         paidDuration,
         freeDuration,
         plannedDuration,
+        earliestEndDate,
+        freedSeconds,
         isOverTotal,
         isOverPaid,
         isOverFree,
@@ -264,7 +279,6 @@ export function RebuildAdmin() {
     displayedCampaigns,
   ])
 
-  // Сводная статистика на выбранную дату
   const stats = useMemo(() => {
     const visibleTkNums = new Set(filteredTkRows.map((t) => t.number))
 
@@ -284,6 +298,7 @@ export function RebuildAdmin() {
     const tkBroadcastingCount = filteredTkRows.filter((t) => t.activeList.length > 0).length
     const tkPlannedCount = filteredTkRows.filter((t) => t.plannedList.length > 0).length
     const overLimitTkCount = filteredTkRows.filter((t) => t.isOverLimit).length
+    const expiringCount = publishedInVisible.filter((c) => c._isExpiringSoon).length
 
     return {
       totalTk,
@@ -292,11 +307,50 @@ export function RebuildAdmin() {
       tkBroadcastingCount,
       tkPlannedCount,
       overLimitTkCount,
+      expiringCount,
       publishedCount: publishedInVisible.length,
       plannedCount: plannedInVisible.length,
       finishedCount: finishedInVisible.length,
     }
   }, [filteredTkRows, publishedCampaigns, plannedCampaigns, finishedCampaigns])
+
+  const handleExportTkCsv = () => {
+    const headers = [
+      "№ ТК",
+      "Формат",
+      "Город",
+      "Адрес",
+      `Суммарно сек (лимит ${TK_QUOTAS.TOTAL_MAX})`,
+      `Платно сек (лимит ${TK_QUOTAS.PAID_MAX})`,
+      `Бесплатно сек (лимит ${TK_QUOTAS.FREE_MAX})`,
+      "План (сек)",
+      "Ближайшее освобождение",
+      "Активные и выбранные РК",
+    ]
+    const csvRows = filteredTkRows.map((tk) => [
+      tk.number,
+      tk.format,
+      `"${tk.city}"`,
+      `"${tk.address.replace(/"/g, '""')}"`,
+      tk.totalDuration,
+      tk.paidDuration,
+      tk.freeDuration,
+      tk.plannedDuration,
+      tk.earliestEndDate ? `-${tk.freedSeconds}с после ${tk.earliestEndDate}` : "—",
+      `"${tk.shownList
+        .map((c) => `${c.name} (${c.client}, ${c.duration}с, ${c._type}, ${c._statusOnDate})`)
+        .join(" | ")
+        .replace(/"/g, '""')}"`,
+    ])
+    const content = "\uFEFF" + [headers.join(";"), ...csvRows.map((r) => r.join(";"))].join("\r\n")
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `экраны_ТК_${dateIso}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const resetFilters = () => {
     setTkFormatFilter("ALL")
@@ -304,6 +358,7 @@ export function RebuildAdmin() {
     setSearchTk("")
     setOnlyWithAds(false)
     setOnlyOverLimit(false)
+    setOnlyExpiringSoon(false)
     setSelectedDate(new Date())
     setStatusFilter("active_and_planned")
     setCampaignTypeFilter("")
@@ -338,13 +393,11 @@ export function RebuildAdmin() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col pb-10">
-      {/* Компактная панель фильтров и сортировки */}
       <div className="bg-card border-b shadow-2xs sticky top-[53px] z-40">
         <div className="max-w-[1920px] mx-auto px-3 py-2 space-y-2">
-          {/* Ряд 1: Формат ТК (ГМ / СМ), Город, Календарь даты, Фильтр статусов */}
+          {/* Ряд 1 */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              {/* Переключатель ГМ / СМ */}
               <div className="inline-flex rounded border bg-muted/40 p-0.5">
                 <button
                   onClick={() => setTkFormatFilter("ALL")}
@@ -381,7 +434,6 @@ export function RebuildAdmin() {
                 </button>
               </div>
 
-              {/* Фильтр по городу */}
               <select
                 value={cityFilter}
                 onChange={(e) => setCityFilter(e.target.value)}
@@ -395,7 +447,6 @@ export function RebuildAdmin() {
                 ))}
               </select>
 
-              {/* Выбор даты из календаря */}
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -418,7 +469,6 @@ export function RebuildAdmin() {
                 </PopoverContent>
               </Popover>
 
-              {/* Переключатель по статусам РК на выбранную дату */}
               <div className="inline-flex rounded border bg-muted/40 p-0.5 text-xs">
                 <button
                   onClick={() => setStatusFilter("active_and_planned")}
@@ -477,20 +527,28 @@ export function RebuildAdmin() {
                 </button>
               </div>
 
-              {/* Поиск по номеру ТК или адресу */}
               <div className="relative">
                 <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="№ ТК или адрес..."
                   value={searchTk}
                   onChange={(e) => setSearchTk(e.target.value)}
-                  className="pl-6 h-7 w-[145px] text-xs"
+                  className="pl-6 h-7 w-[140px] text-xs"
                 />
               </div>
             </div>
 
-            {/* Переключение вида: Список ТК / Матрица */}
             <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs gap-1"
+                onClick={handleExportTkCsv}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Скачать Excel
+              </Button>
+
               <div className="inline-flex rounded border bg-muted/40 p-0.5">
                 <button
                   onClick={() => setViewMode("list")}
@@ -530,7 +588,7 @@ export function RebuildAdmin() {
             </div>
           </div>
 
-          {/* Ряд 2: Фильтры и Сортировка по Типу, Формату, Заказчику */}
+          {/* Ряд 2 */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t text-xs">
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="flex items-center gap-1">
@@ -556,6 +614,7 @@ export function RebuildAdmin() {
                   <option value="">Все</option>
                   <option value="ГМ">ГМ</option>
                   <option value="СМ">СМ</option>
+                  <option value="ГМ+СМ">ГМ+СМ</option>
                   <option value="част.ГМ">част.ГМ</option>
                   <option value="част.СМ">част.СМ</option>
                 </select>
@@ -581,7 +640,7 @@ export function RebuildAdmin() {
                 placeholder="Поиск ролика / заказчика..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-6 w-[160px] text-xs px-2"
+                className="h-6 w-[150px] text-xs px-2"
               />
 
               <label className="flex items-center gap-1 cursor-pointer select-none text-muted-foreground">
@@ -591,6 +650,15 @@ export function RebuildAdmin() {
                   onChange={(e) => setOnlyWithAds(e.target.checked)}
                 />
                 Только ТК с РК
+              </label>
+
+              <label className="flex items-center gap-1 cursor-pointer select-none text-amber-700 dark:text-amber-400 font-medium">
+                <input
+                  type="checkbox"
+                  checked={onlyExpiringSoon}
+                  onChange={(e) => setOnlyExpiringSoon(e.target.checked)}
+                />
+                Истекают ≤ 3 дн. ({stats.expiringCount})
               </label>
 
               <label className="flex items-center gap-1 cursor-pointer select-none text-red-600 dark:text-red-400 font-medium">
@@ -603,7 +671,6 @@ export function RebuildAdmin() {
               </label>
             </div>
 
-            {/* Сортировка */}
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Сортировка:</span>
               <select
@@ -633,7 +700,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Сводка на выбранную дату + памятка квот 180с (125с / 55с) */}
+      {/* Сводка на выбранную дату */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
@@ -673,389 +740,4 @@ export function RebuildAdmin() {
           <div className="bg-card border rounded px-3 py-1.5">
             <div className="text-[11px] text-muted-foreground">Квота ТК (кратно 5 сек)</div>
             <div className="text-xs font-semibold mt-0.5">
-              Всего: <span className="font-bold">{TK_QUOTAS.TOTAL_MAX}с</span>{" "}
-              <span className="text-muted-foreground">
-                (Платно 70%: <strong className="text-foreground">{TK_QUOTAS.PAID_MAX}с</strong> • Беспл. 30%:{" "}
-                <strong className="text-foreground">{TK_QUOTAS.FREE_MAX}с</strong>)
-              </span>
-            </div>
-          </div>
-
-          <div
-            className={cn(
-              "border rounded px-3 py-1.5",
-              stats.overLimitTkCount > 0
-                ? "bg-red-500/15 border-red-500 text-red-700 dark:text-red-300"
-                : "bg-card"
-            )}
-          >
-            <div className="text-[11px] opacity-80">Превышение лимитов в ТК</div>
-            <div className="text-sm font-bold flex items-center gap-1">
-              {stats.overLimitTkCount > 0 && <AlertTriangle className="w-4 h-4 shrink-0" />}
-              {stats.overLimitTkCount} ТК
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Основная таблица */}
-      <div className="max-w-[1920px] w-full mx-auto px-3 mt-2 flex-1">
-        {isLoading ? (
-          <div className="p-8 text-center text-muted-foreground bg-card border rounded text-xs">
-            Загрузка расписания...
-          </div>
-        ) : viewMode === "list" ? (
-          /* ВИД 1: КОМПАКТНЫЙ СПИСОК ТК С КОНТРОЛЕМ КВОТ 180 / 125 / 55 СЕК */
-          <div className="bg-card border rounded shadow-2xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
-                <thead className="bg-muted/50 border-b text-[11px] text-muted-foreground">
-                  <tr>
-                    <th className="px-2 py-1.5 text-left border-r w-[54px]">№ ТК</th>
-                    <th className="px-1.5 py-1.5 text-center border-r w-[48px]">Форм.</th>
-                    <th className="px-2 py-1.5 text-left border-r w-[130px]">Город</th>
-                    <th className="px-2 py-1.5 text-left border-r w-[220px]">Адрес</th>
-                    <th className="px-2 py-1.5 text-center border-r w-[98px]">
-                      Суммарно (≤{TK_QUOTAS.TOTAL_MAX}с)
-                    </th>
-                    <th className="px-2 py-1.5 text-center border-r w-[98px]">
-                      Платно 70% (≤{TK_QUOTAS.PAID_MAX}с)
-                    </th>
-                    <th className="px-2 py-1.5 text-center border-r w-[98px]">
-                      Беспл. 30% (≤{TK_QUOTAS.FREE_MAX}с)
-                    </th>
-                    <th className="px-2 py-1.5 text-center border-r w-[75px]">План</th>
-                    <th className="px-2 py-1.5 text-left">
-                      Рекламные кампании на {format(selectedDate, "dd.MM.yyyy")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTkRows.length === 0 && (
-                    <tr>
-                      <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                        Нет ТК по выбранным фильтрам
-                      </td>
-                    </tr>
-                  )}
-                  {filteredTkRows.map((tk) => (
-                    <tr
-                      key={tk.number}
-                      className={cn(
-                        "border-b transition-colors align-middle",
-                        tk.isOverLimit
-                          ? "bg-red-500/10 hover:bg-red-500/15"
-                          : "hover:bg-muted/20"
-                      )}
-                    >
-                      {/* Ячейка № ТК — подсвечивается красным при превышении любого из 3 лимитов */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 font-bold border-r whitespace-nowrap",
-                          tk.isOverLimit && "bg-red-600 text-white"
-                        )}
-                        title={
-                          tk.isOverLimit
-                            ? `Превышение лимита в ТК №${tk.number}! Суммарно: ${tk.totalDuration}/${TK_QUOTAS.TOTAL_MAX}с, Платно: ${tk.paidDuration}/${TK_QUOTAS.PAID_MAX}с, Бесплатно: ${tk.freeDuration}/${TK_QUOTAS.FREE_MAX}с`
-                            : undefined
-                        }
-                      >
-                        №{tk.number}
-                      </td>
-
-                      <td className="px-1.5 py-1 text-center border-r">
-                        <span
-                          className={cn(
-                            "inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold",
-                            tk.format === "ГМ"
-                              ? "bg-primary/15 text-primary"
-                              : "bg-muted text-foreground"
-                          )}
-                        >
-                          {tk.format}
-                        </span>
-                      </td>
-
-                      <td className="px-2 py-1 font-medium border-r whitespace-nowrap">
-                        {tk.city}
-                      </td>
-
-                      <td
-                        className="px-2 py-1 text-foreground/90 border-r truncate max-w-[220px]"
-                        title={tk.address}
-                      >
-                        {tk.address}
-                      </td>
-
-                      {/* Суммарно сек (без ограничений отображения, красное если > 180с) */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 text-center border-r whitespace-nowrap font-mono font-bold",
-                          tk.isOverTotal
-                            ? "bg-red-600 text-white"
-                            : tk.isOverLimit
-                            ? "text-red-700 dark:text-red-400"
-                            : tk.totalDuration > 0
-                            ? "text-foreground"
-                            : "text-muted-foreground font-normal"
-                        )}
-                      >
-                        {tk.totalDuration} / {TK_QUOTAS.TOTAL_MAX}с
-                      </td>
-
-                      {/* Платно сек (70% = 125с, красное если > 125с) */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
-                          tk.isOverPaid
-                            ? "bg-red-600 text-white font-bold"
-                            : tk.paidDuration > 0
-                            ? "text-emerald-700 dark:text-emerald-400 font-semibold"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        {tk.paidDuration} / {TK_QUOTAS.PAID_MAX}с
-                      </td>
-
-                      {/* Бесплатно сек (30% = 55с, красное если > 55с) */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
-                          tk.isOverFree
-                            ? "bg-red-600 text-white font-bold"
-                            : tk.freeDuration > 0
-                            ? "text-amber-700 dark:text-amber-400 font-semibold"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        {tk.freeDuration} / {TK_QUOTAS.FREE_MAX}с
-                      </td>
-
-                      {/* Запланировано (будущие запуски после выбранной даты) */}
-                      <td className="px-2 py-1 text-center border-r whitespace-nowrap">
-                        {tk.plannedList.length > 0 ? (
-                          <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-400">
-                            {tk.plannedList.length} РК ({tk.plannedDuration}с)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">0</span>
-                        )}
-                      </td>
-
-                      {/* Список РК в этом ТК со статусами */}
-                      <td className="px-2 py-1">
-                        {tk.shownList.length === 0 ? (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {tk.shownList.map((camp) => (
-                              <div
-                                key={camp.id}
-                                className={cn(
-                                  "inline-flex items-center gap-1 border rounded px-1.5 py-0.5 text-[11px]",
-                                  camp._statusOnDate === "запланировано"
-                                    ? "bg-blue-500/10 border-blue-500/30"
-                                    : camp._statusOnDate === "завершён"
-                                    ? "bg-zinc-500/10 border-zinc-500/30 opacity-75"
-                                    : "bg-background border-border"
-                                )}
-                                title={`${camp.name} | Заказчик: ${camp.client} | Статус: ${camp._statusOnDate} | Формат: ${camp._format} | Тип: ${camp._type} | Период: ${camp.startDate} — ${camp.endDate}`}
-                              >
-                                <span className="font-semibold">{camp.name}</span>
-                                <span className="text-muted-foreground">({camp.client})</span>
-                                <span className="font-mono font-bold text-primary">
-                                  {camp.duration}с
-                                </span>
-                                <span className="text-[10px] px-1 rounded bg-muted">
-                                  {camp._format}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "text-[10px] font-medium",
-                                    camp._isPaid
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-amber-600 dark:text-amber-400"
-                                  )}
-                                >
-                                  {camp._type}
-                                </span>
-                                {getStatusBadge(camp._statusOnDate, camp.startDate)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          /* ВИД 2: КОМПАКТНАЯ МАТРИЦА (КАМПАНИИ × ТК) С КРАСНОЙ ПОДСВЕТКОЙ ТК */
-          <div className="bg-card border rounded shadow-2xs overflow-hidden">
-            <div className="overflow-auto max-h-[78vh]">
-              <table className="w-full text-xs border-collapse min-w-max">
-                <thead className="bg-muted/60 sticky top-0 z-20">
-                  <tr>
-                    <th className="px-2 py-1.5 text-left border-b border-r sticky left-0 z-30 bg-muted min-w-[280px]">
-                      Кампания / Заказчик / Статус на {format(selectedDate, "dd.MM.yyyy")}
-                    </th>
-                    {filteredTkRows.map((tk) => (
-                      <th
-                        key={tk.number}
-                        className={cn(
-                          "px-1 py-1 border-b border-r text-center min-w-[68px] max-w-[78px]",
-                          tk.isOverLimit && "bg-red-600 text-white"
-                        )}
-                        title={`ТК №${tk.number} (${tk.city}, ${tk.address}) | Суммарно: ${tk.totalDuration}/${TK_QUOTAS.TOTAL_MAX}с | Платно: ${tk.paidDuration}/${TK_QUOTAS.PAID_MAX}с | Беспл.: ${tk.freeDuration}/${TK_QUOTAS.FREE_MAX}с`}
-                      >
-                        <div className="font-bold text-[11px]">№{tk.number}</div>
-                        <div
-                          className={cn(
-                            "text-[9px]",
-                            tk.isOverLimit ? "text-white/90" : "text-muted-foreground"
-                          )}
-                        >
-                          {tk.format} • {tk.totalDuration}с
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayedCampaigns.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={filteredTkRows.length + 1}
-                        className="p-6 text-center text-muted-foreground"
-                      >
-                        Нет рекламных кампаний по выбранным фильтрам
-                      </td>
-                    </tr>
-                  )}
-                  {displayedCampaigns.map((camp) => (
-                    <tr key={camp.id} className="border-b hover:bg-muted/20">
-                      <td className="px-2 py-1 border-r sticky left-0 z-10 bg-card">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-semibold text-xs truncate">{camp.name}</span>
-                          {getStatusBadge(camp._statusOnDate, camp.startDate)}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <span className="font-medium text-foreground">{camp.client}</span>
-                          <span>•</span>
-                          <span className="font-mono font-semibold">{camp.duration}с</span>
-                          <span>•</span>
-                          <span>{camp._format}</span>
-                          <span>•</span>
-                          <span
-                            className={cn(
-                              camp._isPaid
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-amber-600 dark:text-amber-400"
-                            )}
-                          >
-                            {camp._type}
-                          </span>
-                        </div>
-                      </td>
-                      {filteredTkRows.map((tk) => {
-                        const isPlaced = camp._scNumbersSet.has(tk.number)
-                        return (
-                          <td
-                            key={tk.number}
-                            className={cn(
-                              "border-r px-0.5 py-1 text-center",
-                              tk.isOverLimit && "bg-red-500/10"
-                            )}
-                          >
-                            {isPlaced ? (
-                              <span
-                                className={cn(
-                                  "inline-block px-1 py-0.2 rounded font-bold text-[10px]",
-                                  camp._statusOnDate === "запланировано"
-                                    ? "bg-blue-600/20 text-blue-700 dark:text-blue-300"
-                                    : camp._statusOnDate === "завершён"
-                                    ? "bg-zinc-500/20 text-zinc-600 dark:text-zinc-400"
-                                    : "bg-primary text-primary-foreground"
-                                )}
-                              >
-                                {camp.duration}с
-                              </span>
-                            ) : null}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-
-                  {/* Итоговые строки хронометража по каждому ТК: Суммарно, Платно, Бесплатно */}
-                  <tr className="bg-muted/40 font-bold border-t-2 text-[11px]">
-                    <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted">
-                      Суммарно в эфире (лимит {TK_QUOTAS.TOTAL_MAX}с)
-                    </td>
-                    {filteredTkRows.map((tk) => (
-                      <td
-                        key={tk.number}
-                        className={cn(
-                          "px-1 py-1 border-r text-center font-mono",
-                          tk.isOverTotal
-                            ? "bg-red-600 text-white"
-                            : tk.isOverLimit
-                            ? "bg-red-500/20 text-red-700 dark:text-red-300"
-                            : ""
-                        )}
-                      >
-                        {tk.totalDuration}с
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="bg-muted/20 text-[10px]">
-                    <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted font-medium">
-                      Платно 70% (лимит {TK_QUOTAS.PAID_MAX}с)
-                    </td>
-                    {filteredTkRows.map((tk) => (
-                      <td
-                        key={tk.number}
-                        className={cn(
-                          "px-1 py-1 border-r text-center font-mono",
-                          tk.isOverPaid
-                            ? "bg-red-600 text-white font-bold"
-                            : "text-emerald-700 dark:text-emerald-400"
-                        )}
-                      >
-                        {tk.paidDuration}с
-                      </td>
-                    ))}
-                  </tr>
-
-                  <tr className="bg-muted/20 text-[10px] border-b">
-                    <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted font-medium">
-                      Бесплатно 30% (лимит {TK_QUOTAS.FREE_MAX}с)
-                    </td>
-                    {filteredTkRows.map((tk) => (
-                      <td
-                        key={tk.number}
-                        className={cn(
-                          "px-1 py-1 border-r text-center font-mono",
-                          tk.isOverFree
-                            ? "bg-red-600 text-white font-bold"
-                            : "text-amber-700 dark:text-amber-400"
-                        )}
-                      >
-                        {tk.freeDuration}с
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-export default RebuildAdmin
+              Всего: <span className="font-
