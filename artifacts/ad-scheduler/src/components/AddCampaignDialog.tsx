@@ -22,15 +22,13 @@ export const TYPE_OPTIONS = [
   { label: "не платный", value: "Не платник" },
 ] as const
 
-export interface InitialCampaignForm {
+export interface DuplicateCampaignData {
   name: string
   client: string
-  duration: string
+  duration: number
   format: string
-  type: string
+  type: "Платник" | "Не платник"
   shoppingCenterNumbers: string
-  startDate?: Date
-  endDate?: Date
 }
 
 interface FormState {
@@ -58,7 +56,7 @@ const emptyForm = (): FormState => ({
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  initialData?: InitialCampaignForm | null
+  initialData?: DuplicateCampaignData | null
 }
 
 export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
@@ -67,9 +65,10 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [loading, setLoading] = useState(false)
   const [showTkPicker, setShowTkPicker] = useState(false)
-  const [tkSearch, setTkSearch] = useState("")
+  const [pickerCity, setPickerCity] = useState<string>("")
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
+  // Загружаем текущие кампании для автоматической проверки перегруза квот (180 / 125 / 55с)
   const { data: existingCampaigns = [] } = useQuery<any[]>({
     queryKey: ["campaigns"],
     queryFn: async () => {
@@ -80,17 +79,18 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     enabled: open,
   })
 
+  // Если окно открыто в режиме «Дублировать РК», предзаполняем поля
   useEffect(() => {
     if (open && initialData) {
       setForm({
-        name: initialData.name || "",
-        startDate: initialData.startDate,
-        endDate: initialData.endDate,
-        client: initialData.client || "",
-        duration: initialData.duration || "",
-        format: initialData.format || "",
-        type: initialData.type || "",
-        shoppingCenterNumbers: initialData.shoppingCenterNumbers || "",
+        name: `${initialData.name} (копия)`,
+        startDate: undefined,
+        endDate: undefined,
+        client: initialData.client,
+        duration: String(initialData.duration),
+        format: initialData.format,
+        type: initialData.type,
+        shoppingCenterNumbers: initialData.shoppingCenterNumbers,
       })
       setErrors({})
     } else if (open && !initialData) {
@@ -113,116 +113,107 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     )
   }, [form.shoppingCenterNumbers])
 
+  const updateNumbersFromSet = (nextSet: Set<string>) => {
+    const ordered = MASTER_TK_LIST.filter((t) => nextSet.has(t.number)).map((t) => t.number)
+    const custom = Array.from(nextSet).filter((n) => !MASTER_TK_LIST.some((t) => t.number === n))
+    set("shoppingCenterNumbers", [...ordered, ...custom].join(", "))
+  }
+
   const fillTkByFormat = (fmt: "ГМ" | "СМ" | "ГМ+СМ") => {
-    const nums =
-      fmt === "ГМ+СМ"
-        ? MASTER_TK_LIST.map((t) => t.number)
-        : MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number)
-    set("shoppingCenterNumbers", nums.join(", "))
+    if (fmt === "ГМ+СМ") {
+      set("shoppingCenterNumbers", MASTER_TK_LIST.map((t) => t.number).join(", "))
+    } else {
+      const nums = MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number)
+      set("shoppingCenterNumbers", nums.join(", "))
+    }
   }
 
   const handleFormatChange = (v: string) => {
     set("format", v)
-    if (v === "ГМ") fillTkByFormat("ГМ")
-    else if (v === "СМ") fillTkByFormat("СМ")
-    else if (v === "ГМ+СМ") fillTkByFormat("ГМ+СМ")
+    if (v === "ГМ" || v === "СМ" || v === "ГМ+СМ") {
+      fillTkByFormat(v)
+      setShowTkPicker(false)
+    } else {
+      // Для част.ГМ и част.СМ открываем удобный помощник выбора по городам/галочкам
+      setShowTkPicker(true)
+    }
   }
 
-  const toggleCityTks = (city: string) => {
+  const addCityTks = (city: string) => {
+    const next = new Set(selectedNumbersSet)
     const targetFormat =
-      form.format === "ГМ" || form.format === "част.ГМ"
-        ? "ГМ"
-        : form.format === "СМ" || form.format === "част.СМ"
-        ? "СМ"
-        : null
+      form.format === "част.ГМ" ? "ГМ" : form.format === "част.СМ" ? "СМ" : null
 
     const cityTks = MASTER_TK_LIST.filter(
       (t) => t.city === city && (!targetFormat || t.format === targetFormat)
-    ).map((t) => t.number)
+    )
+    const allAlreadySelected = cityTks.length > 0 && cityTks.every((t) => next.has(t.number))
 
-    if (cityTks.length === 0) return
-
-    const next = new Set(selectedNumbersSet)
-    const allAlreadySelected = cityTks.every((n) => next.has(n))
     if (allAlreadySelected) {
-      cityTks.forEach((n) => next.delete(n))
+      cityTks.forEach((t) => next.delete(t.number))
     } else {
-      cityTks.forEach((n) => next.add(n))
+      cityTks.forEach((t) => next.add(t.number))
     }
-    set("shoppingCenterNumbers", Array.from(next).join(", "))
+    updateNumbersFromSet(next)
   }
 
   const toggleSingleTk = (num: string) => {
     const next = new Set(selectedNumbersSet)
     if (next.has(num)) next.delete(num)
     else next.add(num)
-    set("shoppingCenterNumbers", Array.from(next).join(", "))
+    updateNumbersFromSet(next)
   }
 
-  // Проверка перегруза квот (180с всего / 125с платно / 55с бесплатно) на выбранный период
-  const quotaWarnings = useMemo(() => {
+  // Проверка превышения квот 180с (125с платно / 55с бесплатно) на выбранный период
+  const overloadWarnings = useMemo(() => {
     if (!form.startDate || !form.endDate || !form.duration || !form.type || selectedNumbersSet.size === 0) {
       return []
     }
-    if (form.startDate > form.endDate) return []
-
     const startIso = format(form.startDate, "yyyy-MM-dd")
     const endIso = format(form.endDate, "yyyy-MM-dd")
-    const addedDur = Number(form.duration) || 0
-    const isNewPaid = form.type === "Платник"
+    if (startIso > endIso) return []
 
-    // Находим кампании, пересекающиеся по датам с [startIso, endIso]
-    const overlapping = existingCampaigns.filter(
-      (c) => c.startDate <= endIso && c.endDate >= startIso
-    )
+    const newDur = Number(form.duration) || 0
+    const newIsPaid = form.type === "Платник"
 
-    const warnings: { tkNumber: string; maxTotal: number; maxPaid: number; maxFree: number }[] = []
+    // Находим кампании, которые пересекаются по датам с [startIso, endIso]
+    const overlapping = existingCampaigns.filter((c) => {
+      return c.startDate <= endIso && c.endDate >= startIso
+    })
+
+    const warnings: { number: string; city: string; total: number; paid: number; free: number }[] = []
 
     for (const tkNum of Array.from(selectedNumbersSet)) {
-      const tkCamps = overlapping.filter((c) =>
+      const campsInTk = overlapping.filter((c) =>
         (c.shoppingCenters || []).some((s: any) => String(s.number).trim() === tkNum)
       )
 
-      // Проверяем ключевые точки пересечения (startDate каждой активной РК в этом ТК внутри периода)
-      const checkDates = new Set<string>([startIso, endIso])
-      for (const c of tkCamps) {
-        if (c.startDate >= startIso && c.startDate <= endIso) checkDates.add(c.startDate)
+      let existingPaid = 0
+      let existingFree = 0
+      for (const c of campsInTk) {
+        const isPaid =
+          c.status === "Платник" ||
+          c.status === "платный" ||
+          (c.note && c.note.toLowerCase().includes("платн") && !c.note.toLowerCase().includes("не "))
+        if (isPaid) existingPaid += Number(c.duration) || 0
+        else existingFree += Number(c.duration) || 0
       }
 
-      let maxTotal = addedDur
-      let maxPaid = isNewPaid ? addedDur : 0
-      let maxFree = !isNewPaid ? addedDur : 0
+      const paid = existingPaid + (newIsPaid ? newDur : 0)
+      const free = existingFree + (!newIsPaid ? newDur : 0)
+      const total = paid + free
 
-      for (const d of checkDates) {
-        let paidOnDay = isNewPaid ? addedDur : 0
-        let freeOnDay = !isNewPaid ? addedDur : 0
-
-        for (const c of tkCamps) {
-          if (c.startDate <= d && c.endDate >= d) {
-            const cPaid =
-              c.status === "Платник" ||
-              c.status === "платный" ||
-              (c.note && c.note.toLowerCase().includes("платн") && !c.note.toLowerCase().includes("не "))
-            if (cPaid) paidOnDay += Number(c.duration) || 0
-            else freeOnDay += Number(c.duration) || 0
-          }
-        }
-
-        const totalOnDay = paidOnDay + freeOnDay
-        if (totalOnDay > maxTotal) maxTotal = totalOnDay
-        if (paidOnDay > maxPaid) maxPaid = paidOnDay
-        if (freeOnDay > maxFree) maxFree = freeOnDay
-      }
-
-      if (
-        maxTotal > TK_QUOTAS.TOTAL_MAX ||
-        maxPaid > TK_QUOTAS.PAID_MAX ||
-        maxFree > TK_QUOTAS.FREE_MAX
-      ) {
-        warnings.push({ tkNumber: tkNum, maxTotal, maxPaid, maxFree })
+      if (total > TK_QUOTAS.TOTAL_MAX || paid > TK_QUOTAS.PAID_MAX || free > TK_QUOTAS.FREE_MAX) {
+        const tkInfo = MASTER_TK_LIST.find((t) => t.number === tkNum)
+        warnings.push({
+          number: tkNum,
+          city: tkInfo?.city || "",
+          total,
+          paid,
+          free,
+        })
       }
     }
-
     return warnings
   }, [form.startDate, form.endDate, form.duration, form.type, selectedNumbersSet, existingCampaigns])
 
@@ -289,30 +280,21 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
   }
 
   const filteredPickerTks = useMemo(() => {
-    return MASTER_TK_LIST.filter((t) => {
-      if (form.format === "ГМ" || form.format === "част.ГМ") {
-        if (t.format !== "ГМ") return false
-      } else if (form.format === "СМ" || form.format === "част.СМ") {
-        if (t.format !== "СМ") return false
-      }
-      if (tkSearch.trim()) {
-        const q = tkSearch.trim().toLowerCase()
-        return (
-          t.number.toLowerCase().includes(q) ||
-          t.city.toLowerCase().includes(q) ||
-          t.address.toLowerCase().includes(q)
-        )
-      }
-      return true
-    })
-  }, [form.format, tkSearch])
+    const targetFormat =
+      form.format === "част.ГМ" ? "ГМ" : form.format === "част.СМ" ? "СМ" : null
+    return MASTER_TK_LIST.filter(
+      (t) =>
+        (!targetFormat || t.format === targetFormat) &&
+        (!pickerCity || t.city === pickerCity)
+    )
+  }, [form.format, pickerCity])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {initialData ? "Копирование рекламной кампании" : "Загрузка данных рекламной кампании"}
+            {initialData ? "Дублирование рекламной кампании" : "Загрузка данных рекламной кампании"}
           </DialogTitle>
         </DialogHeader>
 
@@ -457,147 +439,8 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             </div>
           </div>
 
-          {/* 8. Список ТК + Быстрый выбор городов и справочник с галочками */}
+          {/* 8. Список ТК + Помощник выбора по городам и галочкам */}
           <div className="grid gap-1.5">
             <div className="flex flex-wrap items-center justify-between gap-1">
               <Label>
-                Список ТК ({selectedNumbersSet.size} выбрано) <span className="text-destructive">*</span>
-              </Label>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => fillTkByFormat("ГМ")}
-                  className="text-primary hover:underline font-medium"
-                >
-                  Все ГМ (94)
-                </button>
-                <span className="text-muted-foreground">|</span>
-                <button
-                  type="button"
-                  onClick={() => fillTkByFormat("СМ")}
-                  className="text-primary hover:underline font-medium"
-                >
-                  Все СМ (79)
-                </button>
-                <span className="text-muted-foreground">|</span>
-                <button
-                  type="button"
-                  onClick={() => fillTkByFormat("ГМ+СМ")}
-                  className="text-primary hover:underline font-medium"
-                >
-                  Все ГМ+СМ (173)
-                </button>
-                <span className="text-muted-foreground">|</span>
-                <button
-                  type="button"
-                  onClick={() => set("shoppingCenterNumbers", "")}
-                  className="text-muted-foreground hover:underline"
-                >
-                  Очистить
-                </button>
-              </div>
-            </div>
-
-            <Input
-              placeholder="Например: 2, 3, 15, 104"
-              value={form.shoppingCenterNumbers}
-              onChange={(e) => set("shoppingCenterNumbers", e.target.value)}
-              className={cn(errors.shoppingCenterNumbers && "border-destructive")}
-            />
-
-            {/* Быстрые кнопки выбора по городам */}
-            <div className="flex flex-wrap items-center gap-1 pt-0.5">
-              <span className="text-[11px] text-muted-foreground mr-1">По городам:</span>
-              {CITIES.map((city) => (
-                <button
-                  key={city}
-                  type="button"
-                  onClick={() => toggleCityTks(city)}
-                  className="text-[11px] px-1.5 py-0.5 rounded border bg-muted/40 hover:bg-muted transition-colors"
-                >
-                  + {city}
-                </button>
-              ))}
-            </div>
-
-            {/* Раскрывающийся список ТК с галочками */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowTkPicker((v) => !v)}
-                className="text-xs text-primary hover:underline flex items-center gap-1 mt-1"
-              >
-                {showTkPicker ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {showTkPicker ? "Скрыть выбор ТК галочками" : "Выбрать отдельные ТК галочками из списка"}
-              </button>
-
-              {showTkPicker && (
-                <div className="mt-1.5 border rounded-md p-2 bg-muted/20 space-y-2">
-                  <Input
-                    placeholder="Поиск по № ТК, городу или адресу..."
-                    value={tkSearch}
-                    onChange={(e) => setTkSearch(e.target.value)}
-                    className="h-7 text-xs"
-                  />
-                  <div className="max-h-[160px] overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
-                    {filteredPickerTks.map((tk) => (
-                      <label
-                        key={tk.number}
-                        className="flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-muted cursor-pointer truncate"
-                        title={`${tk.city}, ${tk.address}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedNumbersSet.has(tk.number)}
-                          onChange={() => toggleSingleTk(tk.number)}
-                        />
-                        <span className="font-bold">№{tk.number}</span>
-                        <span className="text-[10px] px-1 rounded bg-muted">{tk.format}</span>
-                        <span className="text-muted-foreground truncate">{tk.city} — {tk.address}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {errors.shoppingCenterNumbers && (
-              <p className="text-xs text-destructive">{errors.shoppingCenterNumbers}</p>
-            )}
-          </div>
-
-          {/* Предупреждение о превышении квот (180с / 125с платно / 55с бесплатно) */}
-          {quotaWarnings.length > 0 && (
-            <div className="rounded-md border border-red-500/50 bg-red-500/10 p-2.5 text-xs text-red-700 dark:text-red-300 space-y-1">
-              <div className="font-bold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                Внимание: превышение квоты хронометража в {quotaWarnings.length} ТК!
-              </div>
-              <div className="text-[11px] max-h-[80px] overflow-y-auto space-y-0.5">
-                {quotaWarnings.slice(0, 12).map((w) => (
-                  <div key={w.tkNumber}>
-                    • <strong>ТК №{w.tkNumber}</strong>: суммарно {w.maxTotal}/{TK_QUOTAS.TOTAL_MAX}с (платно{" "}
-                    {w.maxPaid}/{TK_QUOTAS.PAID_MAX}с, беспл. {w.maxFree}/{TK_QUOTAS.FREE_MAX}с)
-                  </div>
-                ))}
-                {quotaWarnings.length > 12 && (
-                  <div>...и ещё в {quotaWarnings.length - 12} ТК</div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Отмена
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            <CheckIcon className="w-4 h-4 mr-2" />
-            {loading ? "Сохранение..." : "Сохранить"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
+                Список ТК ({
