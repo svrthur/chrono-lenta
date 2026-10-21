@@ -12,14 +12,12 @@ const queryClient = new QueryClient()
 
 type ActivePage = "admin" | "board"
 
-const PIN_STORAGE_KEY = "chrono_admin_pin"
-const AUTH_STORAGE_KEY = "chrono_admin_unlocked"
+const DEFAULT_PIN = "1234"
 
 function getInitialPage(): ActivePage {
   const path = window.location.pathname
   const hash = window.location.hash
   if (path.includes("board") || hash.includes("board")) return "board"
-  if (path.includes("admin") || hash.includes("admin")) return "admin"
   const saved = localStorage.getItem("chrono_active_page")
   if (saved === "board" || saved === "admin") return saved
   return "board"
@@ -28,25 +26,25 @@ function getInitialPage(): ActivePage {
 export function App() {
   const [page, setPage] = useState<ActivePage>(getInitialPage)
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
-    return localStorage.getItem(AUTH_STORAGE_KEY) === "true"
+    return sessionStorage.getItem("chrono_admin_unlocked") === "true"
   })
-  const [pinInput, setPinInput] = useState("")
-  const [pinError, setPinError] = useState("")
-  const [changingPin, setChangingPin] = useState(false)
-  const [newPin, setNewPin] = useState("")
-
-  const currentPin = localStorage.getItem(PIN_STORAGE_KEY) || "1234"
+  const [pinInput, setPinInput] = useState<string>("")
+  const [pinError, setPinError] = useState<string>("")
+  const [changingPin, setChangingPin] = useState<boolean>(false)
+  const [newPin, setNewPin] = useState<string>("")
 
   useEffect(() => {
     localStorage.setItem("chrono_active_page", page)
     window.location.hash = page === "board" ? "#board" : "#admin"
   }, [page])
 
+  const getSavedPin = () => localStorage.getItem("chrono_admin_pin") || DEFAULT_PIN
+
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault()
-    if (pinInput.trim() === currentPin) {
+    if (pinInput.trim() === getSavedPin()) {
       setIsUnlocked(true)
-      localStorage.setItem(AUTH_STORAGE_KEY, "true")
+      sessionStorage.setItem("chrono_admin_unlocked", "true")
       setPinInput("")
       setPinError("")
     } else {
@@ -56,7 +54,7 @@ export function App() {
 
   const handleLock = () => {
     setIsUnlocked(false)
-    localStorage.removeItem(AUTH_STORAGE_KEY)
+    sessionStorage.removeItem("chrono_admin_unlocked")
     setChangingPin(false)
     setPage("board")
   }
@@ -64,13 +62,13 @@ export function App() {
   const handleSaveNewPin = (e: React.FormEvent) => {
     e.preventDefault()
     if (newPin.trim().length < 4) {
-      alert("ПИН-код должен содержать минимум 4 символа")
+      window.alert("ПИН-код должен содержать минимум 4 символа")
       return
     }
-    localStorage.setItem(PIN_STORAGE_KEY, newPin.trim())
+    localStorage.setItem("chrono_admin_pin", newPin.trim())
     setNewPin("")
     setChangingPin(false)
-    alert("Новый ПИН-код успешно сохранен!")
+    window.alert("Новый ПИН-код сохранен")
   }
 
   return (
@@ -80,88 +78,86 @@ export function App() {
           <header className="border-b bg-card px-4 py-2.5 flex items-center justify-between sticky top-0 z-50 shadow-2xs">
             <div className="flex items-center gap-3">
               <span className="text-base font-bold tracking-tight">Chrono Lenta</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                Календарь ТК
+              <span className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                173 ТК • Квота 180с (125с / 55с)
               </span>
             </div>
 
             <nav className="flex items-center gap-2">
+              {page === "admin" && isUnlocked && (
+                <div className="flex items-center gap-1.5 mr-2">
+                  {changingPin ? (
+                    <form onSubmit={handleSaveNewPin} className="flex items-center gap-1">
+                      <Input
+                        type="password"
+                        placeholder="Новый ПИН..."
+                        value={newPin}
+                        onChange={(e) => setNewPin(e.target.value)}
+                        className="h-7 w-28 text-xs"
+                      />
+                      <Button type="submit" size="sm" className="h-7 px-2 text-xs">
+                        ОК
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setChangingPin(false)}
+                      >
+                        Отмена
+                      </Button>
+                    </form>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1"
+                      onClick={() => setChangingPin(true)}
+                      title="Изменить ПИН-код входа в Админку"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      Сменить ПИН
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={handleLock}
+                    title="Заблокировать панель администратора"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    Выйти
+                  </Button>
+                </div>
+              )}
+
+              <Button
+                variant={page === "admin" ? "default" : "ghost"}
+                size="sm"
+                className="gap-1.5 h-8 text-xs"
+                onClick={() => setPage("admin")}
+              >
+                {isUnlocked ? (
+                  <Unlock className="w-3.5 h-3.5" />
+                ) : (
+                  <Settings className="w-3.5 h-3.5" />
+                )}
+                Админ (Загрузка данных)
+              </Button>
+
               <Button
                 variant={page === "board" ? "default" : "ghost"}
                 size="sm"
-                className="gap-2 h-8 text-xs"
+                className="gap-1.5 h-8 text-xs"
                 onClick={() => setPage("board")}
               >
                 <MonitorPlay className="w-3.5 h-3.5" />
                 Экраны ТК (Для коллег)
               </Button>
-
-              <Button
-                variant={page === "admin" ? "default" : "ghost"}
-                size="sm"
-                className="gap-2 h-8 text-xs"
-                onClick={() => setPage("admin")}
-              >
-                {isUnlocked ? (
-                  <Unlock className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <Lock className="w-3.5 h-3.5" />
-                )}
-                Админ (Загрузка данных)
-              </Button>
-
-              {isUnlocked && page === "admin" && (
-                <div className="flex items-center gap-1 ml-2 pl-2 border-l">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-[11px]"
-                    onClick={() => setChangingPin((v) => !v)}
-                  >
-                    <KeyRound className="w-3 h-3 mr-1" />
-                    Сменить ПИН
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-[11px] text-muted-foreground hover:text-destructive"
-                    onClick={handleLock}
-                    title="Заблокировать панель админа"
-                  >
-                    <Lock className="w-3 h-3 mr-1" />
-                    Выйти
-                  </Button>
-                </div>
-              )}
             </nav>
           </header>
-
-          {changingPin && isUnlocked && (
-            <div className="bg-muted/60 border-b px-4 py-2 flex items-center justify-end gap-2 text-xs">
-              <form onSubmit={handleSaveNewPin} className="flex items-center gap-2">
-                <span className="text-muted-foreground">Новый ПИН-код админа:</span>
-                <Input
-                  type="password"
-                  placeholder="Минимум 4 символа"
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value)}
-                  className="h-7 w-40 text-xs"
-                />
-                <Button type="submit" size="sm" className="h-7 text-xs">
-                  Сохранить
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setChangingPin(false)}
-                >
-                  Отмена
-                </Button>
-              </form>
-            </div>
-          )}
 
           <main className="flex-1">
             {page === "board" ? (
@@ -169,24 +165,22 @@ export function App() {
             ) : isUnlocked ? (
               <Home />
             ) : (
-              <div className="min-h-[75vh] flex items-center justify-center p-4">
-                <div className="w-full max-w-sm bg-card border rounded-lg shadow-sm p-6 space-y-4">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-full bg-primary/10 text-primary">
-                      <Lock className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-base font-bold">Доступ администратора</h2>
-                      <p className="text-xs text-muted-foreground">
-                        Введите ПИН-код для загрузки и редактирования РК
-                      </p>
-                    </div>
+              <div className="flex items-center justify-center min-h-[75vh] p-4">
+                <form
+                  onSubmit={handleUnlock}
+                  className="bg-card border rounded-lg shadow-sm p-6 w-full max-w-sm space-y-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-5 h-5 text-primary" />
+                    <h2 className="text-lg font-bold">Вход в панель администратора</h2>
                   </div>
-
-                  <form onSubmit={handleUnlock} className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Введите ПИН-код для доступа к загрузке и редактированию рекламных кампаний.
+                  </p>
+                  <div className="space-y-1.5">
                     <Input
                       type="password"
-                      placeholder="Введите ПИН-код (по умолчанию 1234)"
+                      placeholder="Введите ПИН-код"
                       value={pinInput}
                       onChange={(e) => {
                         setPinInput(e.target.value)
@@ -195,21 +189,21 @@ export function App() {
                       autoFocus
                     />
                     {pinError && <p className="text-xs text-destructive">{pinError}</p>}
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage("board")}
-                      >
-                        К экранам ТК
-                      </Button>
-                      <Button type="submit" size="sm">
-                        Войти
-                      </Button>
-                    </div>
-                  </form>
-                </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPage("board")}
+                    >
+                      К экранам ТК
+                    </Button>
+                    <Button type="submit" size="sm">
+                      Войти
+                    </Button>
+                  </div>
+                </form>
               </div>
             )}
           </main>
