@@ -1,11 +1,12 @@
-import React, { useState } from "react"
+import React, { useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { format, addDays } from "date-fns"
+import { format, addDays, subDays, startOfMonth, endOfMonth } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, Download, Copy } from "lucide-react"
+import { CalendarIcon, Download, Copy, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
 import EditCampaignDialog from "./EditCampaignDialog"
 import { getApiUrl } from "@/lib/api"
 import { FORMAT_OPTIONS, CampaignInitialData } from "./AddCampaignDialog"
+import { MASTER_TK_LIST } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -24,6 +25,13 @@ type Campaign = {
 }
 
 type StatusLabel = "опубликовано" | "запланировано" | "завершён"
+
+const GM_NUMBERS_SET = new Set(
+  MASTER_TK_LIST.filter((t) => t.format === "ГМ").map((t) => t.number)
+)
+const SM_NUMBERS_SET = new Set(
+  MASTER_TK_LIST.filter((t) => t.format === "СМ").map((t) => t.number)
+)
 
 async function fetchCampaigns(): Promise<Campaign[]> {
   const res = await fetch(getApiUrl("/api/campaigns"))
@@ -49,6 +57,9 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const [editingId, setEditingId] = useState<number | null>(null)
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [periodStart, setPeriodStart] = useState<Date>(() => startOfMonth(new Date()))
+  const [periodEnd, setPeriodEnd] = useState<Date>(() => endOfMonth(new Date()))
+
   const [filterStatus, setFilterStatus] = useState<string>("")
   const [filterType, setFilterType] = useState<string>("")
   const [filterClient, setFilterClient] = useState<string>("")
@@ -57,6 +68,8 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
 
   const dateIso = format(selectedDate, "yyyy-MM-dd")
   const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
+  const periodStartIso = format(periodStart, "yyyy-MM-dd")
+  const periodEndIso = format(periodEnd, "yyyy-MM-dd")
 
   const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectAll = () => {
@@ -100,39 +113,75 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
 
   const clients = Array.from(new Set(rows.map((r) => r.client))).filter(Boolean)
 
-  const normalizedRows = rows.map((r) => {
-    const isPaid =
-      r.status === "Платник" ||
-      r.status === "платный" ||
-      (r.note && r.note.toLowerCase().includes("платн") && !r.note.toLowerCase().includes("не "))
-    const typeLabel = isPaid ? "платный" : "не платный"
-    const formatLabel =
-      r.tkType ||
-      (r as any).tk_type ||
-      Array.from(new Set((r.shoppingCenters || []).map((s) => s.format))).join(", ") ||
-      "ГМ"
-    const tkListStr = (r.shoppingCenters || []).map((s) => s.number).join(", ")
+  const normalizedRows = useMemo(() => {
+    return rows.map((r) => {
+      const isPaid =
+        r.status === "Платник" ||
+        r.status === "платный" ||
+        (r.note && r.note.toLowerCase().includes("платн") && !r.note.toLowerCase().includes("не "))
+      const typeLabel = isPaid ? "платный" : "не платный"
+      const formatLabel =
+        r.tkType ||
+        (r as any).tk_type ||
+        Array.from(new Set((r.shoppingCenters || []).map((s) => s.format))).join(", ") ||
+        "ГМ"
+      const scNums = (r.shoppingCenters || []).map((s) => String(s.number).trim())
+      const tkListStr = scNums.join(", ")
 
-    let computedStatus: StatusLabel = "опубликовано"
-    if (r.startDate > dateIso) {
-      computedStatus = "запланировано"
-    } else if (r.endDate < dateIso) {
-      computedStatus = "завершён"
-    }
+      const hasGmTk = scNums.some((n) => GM_NUMBERS_SET.has(n))
+      const hasSmTk = scNums.some((n) => SM_NUMBERS_SET.has(n))
+      const isGm =
+        formatLabel === "ГМ" ||
+        formatLabel === "част.ГМ" ||
+        formatLabel === "ГМ+СМ" ||
+        hasGmTk
+      const isSm =
+        formatLabel === "СМ" ||
+        formatLabel === "част.СМ" ||
+        formatLabel === "ГМ+СМ" ||
+        hasSmTk
 
-    const isExpiringSoon =
-      computedStatus === "опубликовано" && r.endDate >= dateIso && r.endDate <= in3DaysIso
+      let computedStatus: StatusLabel = "опубликовано"
+      if (r.startDate > dateIso) {
+        computedStatus = "запланировано"
+      } else if (r.endDate < dateIso) {
+        computedStatus = "завершён"
+      }
+
+      const isExpiringSoon =
+        computedStatus === "опубликовано" && r.endDate >= dateIso && r.endDate <= in3DaysIso
+
+      return {
+        ...r,
+        _isPaid: Boolean(isPaid),
+        _typeLabel: typeLabel,
+        _formatLabel: formatLabel,
+        _tkListStr: tkListStr,
+        _isGm: isGm,
+        _isSm: isSm,
+        _statusLabel: computedStatus,
+        _isExpiringSoon: isExpiringSoon,
+      }
+    })
+  }, [rows, dateIso, in3DaysIso])
+
+  // Подсчет опубликованных роликов (РК) за выбранный период (отдельно для ГМ и отдельно для СМ)
+  const periodPublishedStats = useMemo(() => {
+    const start = periodStartIso <= periodEndIso ? periodStartIso : periodEndIso
+    const end = periodStartIso <= periodEndIso ? periodEndIso : periodStartIso
+
+    const publishedInPeriod = normalizedRows.filter((r) => {
+      if (filterClient && r.client !== filterClient) return false
+      if (filterType && r._typeLabel !== filterType) return false
+      return r.startDate <= end && r.endDate >= start
+    })
 
     return {
-      ...r,
-      _isPaid: Boolean(isPaid),
-      _typeLabel: typeLabel,
-      _formatLabel: formatLabel,
-      _tkListStr: tkListStr,
-      _statusLabel: computedStatus,
-      _isExpiringSoon: isExpiringSoon,
+      totalCount: publishedInPeriod.length,
+      gmCount: publishedInPeriod.filter((r) => r._isGm).length,
+      smCount: publishedInPeriod.filter((r) => r._isSm).length,
     }
-  })
+  }, [normalizedRows, periodStartIso, periodEndIso, filterClient, filterType])
 
   const filteredRows = normalizedRows
     .filter((r) => (filterStatus ? r._statusLabel === filterStatus : true))
@@ -206,7 +255,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   }
 
   return (
-    <div className="overflow-auto bg-card rounded-lg border shadow-sm p-4">
+    <div className="overflow-auto bg-card rounded-lg border shadow-sm p-4 space-y-4">
       <EditCampaignDialog
         campaignId={editingId}
         open={!!editingId}
@@ -215,27 +264,124 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         }}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      {/* Блок подсчета опубликованных роликов и РК за выбранный период (отдельно для ГМ и СМ) */}
+      <div className="bg-muted/20 border rounded-md px-3 py-2.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-semibold flex items-center gap-1.5 text-foreground">
+            <BarChart3 className="w-4 h-4 text-primary" />
+            Опубликовано за период:
+          </span>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs font-medium bg-background">
+                <CalendarIcon className="mr-1.5 h-3 w-3 text-muted-foreground" />
+                С: {format(periodStart, "dd.MM.yyyy", { locale: ru })}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={periodStart}
+                onSelect={(d) => d && setPeriodStart(d)}
+                locale={ru}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <span className="text-muted-foreground">—</span>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs font-medium bg-background">
+                <CalendarIcon className="mr-1.5 h-3 w-3 text-muted-foreground" />
+                По: {format(periodEnd, "dd.MM.yyyy", { locale: ru })}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={periodEnd}
+                onSelect={(d) => d && setPeriodEnd(d)}
+                locale={ru}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              setPeriodStart(startOfMonth(selectedDate))
+              setPeriodEnd(endOfMonth(selectedDate))
+            }}
+          >
+            Текущий месяц
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="px-3 py-1 rounded border bg-background">
+            Всего роликов (РК):{" "}
+            <strong className="text-sm font-bold text-foreground">
+              {periodPublishedStats.totalCount}
+            </strong>
+          </div>
+
+          <div className="px-3 py-1 rounded border bg-primary/10 border-primary/30 text-primary">
+            Для ГМ:{" "}
+            <strong className="text-sm font-bold">{periodPublishedStats.gmCount}</strong> рол. (РК)
+          </div>
+
+          <div className="px-3 py-1 rounded border bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400">
+            Для СМ:{" "}
+            <strong className="text-sm font-bold">{periodPublishedStats.smCount}</strong> рол. (РК)
+          </div>
+        </div>
+      </div>
+
+      {/* Фильтры реестра кампаний */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Дата проверки</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs font-medium">
-                  <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-primary" />
-                  {format(selectedDate, "dd.MM.yyyy", { locale: ru })}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(d) => d && setSelectedDate(d)}
-                  locale={ru}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
+            <label className="text-xs text-muted-foreground block mb-1">Дата проверки статуса</label>
+            <div className="inline-flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setSelectedDate((d) => subDays(d, 1))}
+                title="Предыдущий день"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs font-medium">
+                    <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-primary" />
+                    {format(selectedDate, "dd.MM.yyyy", { locale: ru })}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(d) => d && setSelectedDate(d)}
+                    locale={ru}
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setSelectedDate((d) => addDays(d, 1))}
+                title="Следующий день"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           <div>
@@ -328,7 +474,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
       </div>
 
       {isError && (
-        <div className="mb-4 p-3 rounded border border-destructive/40 bg-destructive/10 text-destructive text-sm flex items-center justify-between">
+        <div className="p-3 rounded border border-destructive/40 bg-destructive/10 text-destructive text-sm flex items-center justify-between">
           <span>Ошибка загрузки кампаний: {(error as Error)?.message || "Сервер недоступен"}</span>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             Повторить
