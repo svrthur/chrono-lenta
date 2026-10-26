@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { format, addDays } from "date-fns"
+import { format, addDays, subDays } from "date-fns"
 import { ru } from "date-fns/locale"
 import {
   CalendarIcon,
@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   Download,
   Clock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 import { getApiUrl } from "@/lib/api"
@@ -35,6 +37,10 @@ type CampaignRow = {
 }
 
 export type CampaignStatusLabel = "опубликовано" | "запланировано" | "завершён"
+
+const TOTAL_TK_COUNT = MASTER_TK_LIST.length
+const TOTAL_GM_COUNT = MASTER_TK_LIST.filter((t) => t.format === "ГМ").length
+const TOTAL_SM_COUNT = MASTER_TK_LIST.filter((t) => t.format === "СМ").length
 
 async function fetchCampaigns(): Promise<CampaignRow[]> {
   const res = await fetch(getApiUrl("/api/campaigns"))
@@ -299,7 +305,7 @@ export function RebuildAdmin() {
       tk.plannedDuration,
       tk.earliestEndDate ? `-${tk.freedSeconds}с после ${tk.earliestEndDate}` : "—",
       `"${tk.shownList
-        .map((c) => `${c.name} (${c.client},${c.duration}с, ${c._type},${c._statusOnDate})`)
+        .map((c) => `${c.name} (${c.client}, ${c.duration}с, ${c._type}, ${c._statusOnDate})`)
         .join(" | ")
         .replace(/"/g, '""')}"`,
     ])
@@ -370,7 +376,11 @@ export function RebuildAdmin() {
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    {fmt === "ALL" ? "Все (173)" : fmt === "ГМ" ? "ГМ (94)" : "СМ (79)"}
+                    {fmt === "ALL"
+                      ? `Все (${TOTAL_TK_COUNT})`
+                      : fmt === "ГМ"
+                      ? `ГМ (${TOTAL_GM_COUNT})`
+                      : `СМ (${TOTAL_SM_COUNT})`}
                   </button>
                 ))}
               </div>
@@ -388,27 +398,47 @@ export function RebuildAdmin() {
                 ))}
               </select>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2.5 text-xs justify-start text-left font-semibold border-primary/40"
-                  >
-                    <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-primary" />
-                    Дата расчета: {format(selectedDate, "dd.MM.yyyy", { locale: ru })}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={(d) => d && setSelectedDate(d)}
-                    locale={ru}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              {/* Выбор даты с удобными стрелками перелистывания дней */}
+              <div className="inline-flex items-center gap-0.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 w-7 p-0 border-primary/40"
+                  onClick={() => setSelectedDate((d) => subDays(d, 1))}
+                  title="Предыдущий день"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs justify-start text-left font-semibold border-primary/40"
+                    >
+                      <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-primary" />
+                      Дата расчета: {format(selectedDate, "dd.MM.yyyy", { locale: ru })}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={(d) => d && setSelectedDate(d)}
+                      locale={ru}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 w-7 p-0 border-primary/40"
+                  onClick={() => setSelectedDate((d) => addDays(d, 1))}
+                  title="Следующий день"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
 
               <div className="inline-flex rounded border bg-muted/40 p-0.5 text-xs">
                 <button
