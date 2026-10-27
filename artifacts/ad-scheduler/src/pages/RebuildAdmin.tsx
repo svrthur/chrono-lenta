@@ -21,8 +21,16 @@ import {
   ChevronUp,
   Trash2,
   ShieldCheck,
+  XCircle,
 } from "lucide-react"
-import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
+import {
+  CITIES,
+  MASTER_TK_LIST,
+  TK_QUOTAS,
+  QuotaAlertLevel,
+  evaluateTkQuota,
+  parseAndValidateTkNumbers,
+} from "@/lib/constants"
 import { getApiUrl } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -65,9 +73,12 @@ export type BookingConflictDetail = {
   tkNumber: string
   city: string
   peakDate: string
+  level: "orange" | "red"
+  reason: string
   totalSec: number
   paidSec: number
   freeSec: number
+  paidRemainingSec: number
   priorBookingsInTk: string[]
 }
 
@@ -75,6 +86,7 @@ export type EvaluatedBooking = BookingRow & {
   _rank: number
   _isPaid: boolean
   _scSet: Set<string>
+  _alertLevel: QuotaAlertLevel
   _hasConflict: boolean
   _conflicts: BookingConflictDetail[]
 }
@@ -117,7 +129,7 @@ function formatDateTimeRu(iso: string) {
   })
 }
 
-// Функция расчета приоритетов и конфликтов для очереди бронирования (по принципу FIFO)
+// Расчет приоритетов и предупреждений (оранжевых / красных) для очереди бронирования по принципу FIFO
 export function evaluateBookingsQueue(
   rawBookings: BookingRow[],
   rawCampaigns: CampaignRow[]
@@ -157,7 +169,6 @@ export function evaluateBookingsQueue(
     const bEnd = b.endDate
     const bDur = Number(b.duration) || 0
 
-    // Учитываем только те брони, которые были внесены РАНЬШЕ текущей (индексы 0 .. idx-1)
     const priorBookings = evaluated.slice(0, idx)
     const conflicts: BookingConflictDetail[] = []
 
@@ -177,11 +188,12 @@ export function evaluateBookingsQueue(
         if (pb.startDate >= bStart && pb.startDate <= bEnd) candidateDates.add(pb.startDate)
       }
 
-      let maxTotal = 0
-      let maxPaid = 0
-      let maxFree = 0
+      let worstLevel: QuotaAlertLevel = "ok"
+      let worstEval = evaluateTkQuota(0, 0)
       let worstDate = bStart
       let worstPriorNames: string[] = []
+
+      const severityRank = (lvl: QuotaAlertLevel) => (lvl === "red" ? 2 : lvl === "orange" ? 1 : 0)
 
       for (const d of Array.from(candidateDates).sort()) {
         let paid = bIsPaid ? bDur : 0
@@ -202,40 +214,46 @@ export function evaluateBookingsQueue(
           }
         }
 
-        const total = paid + free
-        if (total > maxTotal || paid > maxPaid || free > maxFree) {
-          maxTotal = Math.max(maxTotal, total)
-          maxPaid = Math.max(maxPaid, paid)
-          maxFree = Math.max(maxFree, free)
+        const qEval = evaluateTkQuota(paid, free)
+        if (
+          severityRank(qEval.level) > severityRank(worstLevel) ||
+          (severityRank(qEval.level) === severityRank(worstLevel) && qEval.totalSec > worstEval.totalSec)
+        ) {
+          worstLevel = qEval.level
+          worstEval = qEval
           worstDate = d
           worstPriorNames = activePriorsOnDate
         }
       }
 
-      if (
-        maxTotal > TK_QUOTAS.TOTAL_MAX ||
-        maxPaid > TK_QUOTAS.PAID_MAX ||
-        maxFree > TK_QUOTAS.FREE_MAX
-      ) {
+      if (worstLevel === "red" || worstLevel === "orange") {
         const tkInfo = MASTER_TK_LIST.find((t) => t.number === tkNum)
         conflicts.push({
           tkNumber: tkNum,
           city: tkInfo?.city || "",
           peakDate: worstDate,
-          totalSec: maxTotal,
-          paidSec: maxPaid,
-          freeSec: maxFree,
+          level: worstLevel,
+          reason: worstEval.reason,
+          totalSec: worstEval.totalSec,
+          paidSec: worstEval.paidSec,
+          freeSec: worstEval.freeSec,
+          paidRemainingSec: worstEval.paidRemainingSec,
           priorBookingsInTk: worstPriorNames,
         })
       }
     }
+
+    const hasRed = conflicts.some((c) => c.level === "red")
+    const hasOrange = conflicts.some((c) => c.level === "orange")
+    const overallLevel: QuotaAlertLevel = hasRed ? "red" : hasOrange ? "orange" : "ok"
 
     evaluated.push({
       ...b,
       _rank: rank,
       _isPaid: bIsPaid,
       _scSet: bScSet,
-      _hasConflict: conflicts.length > 0,
+      _alertLevel: overallLevel,
+      _hasConflict: overallLevel !== "ok",
       _conflicts: conflicts,
     })
   }
@@ -260,8 +278,20 @@ export function RebuildAdmin() {
   const [viewMode, setViewMode] = useState<"list" | "matrix" | "bookings">("list")
   const [bookingDialogOpen, setBookingDialogOpen] = useState<boolean>(false)
 
-  // Переключатель Пункта 1: Учитывать брони в счетчиках ТК (Эфир + Бронь)
-  const [includeBookingsInTk, setIncludeBookingsInTk] = useState<boolean>(true)
+  // ПО УМОЛЧАНИЮ ОТКЛЮЧЕНО: коллегам показывается только основной хронометраж
+  const [includeBookingsInTk, setIncludeBookingsInTk] = useState<boolean>(false)
+
+  // Раскрытые строки ТК в столбце "Рекламные кампании"
+  const [expandedTkSet, setExpandedTkSet] = useState<Set<string>>(new Set())
+
+  const toggleExpandTk = (tkNum: string) => {
+    setExpandedTkSet((prev) => {
+      const next = new Set(prev)
+      if (next.has(tkNum)) next.delete(tkNum)
+      else next.add(tkNum)
+      return next
+    })
+  }
 
   // Поля формы нового бронирования
   const [bSurname, setBSurname] = useState<string>("")
@@ -299,22 +329,20 @@ export function RebuildAdmin() {
   const dateIso = format(selectedDate, "yyyy-MM-dd")
   const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
 
-  // Пункт 2: Очередь бронирования с расчетом приоритетов и конфликтов (FIFO)
   const evaluatedBookings = useMemo(
     () => evaluateBookingsQueue(rawBookings, rawCampaigns),
     [rawBookings, rawCampaigns]
   )
 
-  const bSelectedSet = useMemo(() => {
-    return new Set(
-      bTkNumbers
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    )
-  }, [bTkNumbers])
+  // Проверка введенных ТК в окне бронирования на наличие чужих ТК (не из нашей БД)
+  const bParsedTk = useMemo(() => parseAndValidateTkNumbers(bTkNumbers), [bTkNumbers])
+  const bSelectedSet = useMemo(() => new Set(bParsedTk.validNumbers), [bParsedTk.validNumbers])
 
-  // Превентивная проверка конфликтов прямо внутри модального окна «+ Бронирование»
+  const removeUnknownBTks = () => {
+    setBTkNumbers(bParsedTk.validNumbers.join(", "))
+  }
+
+  // Превентивная проверка квот (оранжевые и красные предупреждения) внутри окна Бронирования
   const draftBookingConflicts = useMemo(() => {
     if (!bStartDate || !bEndDate || !bDuration || !bPayerType || bSelectedSet.size === 0) {
       return []
@@ -341,10 +369,18 @@ export function RebuildAdmin() {
     return last ? last._conflicts : []
   }, [bStartDate, bEndDate, bDuration, bPayerType, bSelectedSet, bSurname, bFormat, rawBookings, rawCampaigns])
 
+  const draftRedConflicts = useMemo(
+    () => draftBookingConflicts.filter((c) => c.level === "red"),
+    [draftBookingConflicts]
+  )
+  const draftOrangeConflicts = useMemo(
+    () => draftBookingConflicts.filter((c) => c.level === "orange"),
+    [draftBookingConflicts]
+  )
+
   const updateBTkFromSet = (nextSet: Set<string>) => {
     const ordered = MASTER_TK_LIST.filter((t) => nextSet.has(t.number)).map((t) => t.number)
-    const custom = Array.from(nextSet).filter((n) => !MASTER_TK_LIST.some((t) => t.number === n))
-    setBTkNumbers([...ordered, ...custom].join(", "))
+    setBTkNumbers(ordered.join(", "))
   }
 
   const fillBTkByFormat = (fmt: "ГМ" | "СМ" | "ГМ+СМ") => {
@@ -435,8 +471,15 @@ export function RebuildAdmin() {
     if (!bDuration) {
       return toast({ title: "Выберите хронометраж", variant: "destructive" })
     }
+    if (bParsedTk.unknownNumbers.length > 0) {
+      return toast({
+        title: "Обнаружены чужие ТК",
+        description: `ТК №${bParsedTk.unknownNumbers.join(", ")} к нам не относятся. Нажмите «Удалить лишние ТК».`,
+        variant: "destructive",
+      })
+    }
     if (bSelectedSet.size === 0) {
-      return toast({ title: "Укажите список ТК", variant: "destructive" })
+      return toast({ title: "Укажите список ТК из нашей сети", variant: "destructive" })
     }
 
     setBSaving(true)
@@ -582,7 +625,6 @@ export function RebuildAdmin() {
     return [...publishedCampaigns, ...plannedCampaigns]
   }, [statusFilter, publishedCampaigns, plannedCampaigns, finishedCampaigns, baseFilteredCampaigns])
 
-  // Брони, попадающие на выбранную в календаре дату (для Пункта 1: Эфир + Бронь)
   const activeBookingsOnDate = useMemo(() => {
     return evaluatedBookings.filter((b) => {
       if (b.startDate > dateIso || b.endDate < dateIso) return false
@@ -595,7 +637,7 @@ export function RebuildAdmin() {
     })
   }, [evaluatedBookings, dateIso, campaignTypeFilter, campaignFormatFilter])
 
-  // Расчет загрузки каждого ТК с учетом тумблера «Учитывать бронь в ТК (Эфир + Бронь)»
+  // Расчет загрузки каждого ТК по новой логике предупреждений (ok / orange / red)
   const filteredTkRows = useMemo(() => {
     return MASTER_TK_LIST.map((tk) => {
       const activeList = publishedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
@@ -609,6 +651,7 @@ export function RebuildAdmin() {
       const airFreeDuration = activeList
         .filter((c) => !c._isPaid)
         .reduce((sum, c) => sum + (c.duration || 0), 0)
+      const airTotalDuration = airPaidDuration + airFreeDuration
 
       const bookedPaidDuration = bookingsInTk
         .filter((b) => b._isPaid)
@@ -637,10 +680,9 @@ export function RebuildAdmin() {
           .reduce((sum, c) => sum + (c.duration || 0), 0)
       }
 
-      const isOverTotal = totalDuration > TK_QUOTAS.TOTAL_MAX
-      const isOverPaid = paidDuration > TK_QUOTAS.PAID_MAX
-      const isOverFree = freeDuration > TK_QUOTAS.FREE_MAX
-      const isOverLimit = isOverTotal || isOverPaid || isOverFree
+      const quotaEval = evaluateTkQuota(paidDuration, freeDuration)
+      const alertLevel = quotaEval.level
+      const isOverLimit = alertLevel === "red" || alertLevel === "orange"
 
       const hasAnyItems =
         shownList.length > 0 || (includeBookingsInTk && bookingsInTk.length > 0)
@@ -651,6 +693,7 @@ export function RebuildAdmin() {
         plannedList,
         shownList,
         bookingsInTk,
+        airTotalDuration,
         airPaidDuration,
         airFreeDuration,
         bookedPaidDuration,
@@ -660,12 +703,14 @@ export function RebuildAdmin() {
         paidDuration,
         freeDuration,
         plannedDuration,
+        paidRemainingSec: quotaEval.paidRemainingSec,
+        alertLevel,
+        alertReason: quotaEval.reason,
+        isOverTotal: quotaEval.isOverTotal,
+        isOverPaid: quotaEval.isOverPaid,
+        isOverLimit,
         earliestEndDate,
         freedSeconds,
-        isOverTotal,
-        isOverPaid,
-        isOverFree,
-        isOverLimit,
         hasAnyItems,
       }
     }).filter((tk) => {
@@ -698,6 +743,21 @@ export function RebuildAdmin() {
     includeBookingsInTk,
   ])
 
+  const allExpandableNums = useMemo(
+    () => filteredTkRows.filter((t) => t.hasAnyItems).map((t) => t.number),
+    [filteredTkRows]
+  )
+  const areAllExpanded =
+    allExpandableNums.length > 0 && allExpandableNums.every((n) => expandedTkSet.has(n))
+
+  const toggleExpandAll = () => {
+    if (areAllExpanded) {
+      setExpandedTkSet(new Set())
+    } else {
+      setExpandedTkSet(new Set(allExpandableNums))
+    }
+  }
+
   const stats = useMemo(() => {
     const visibleTkNums = new Set(filteredTkRows.map((t) => t.number))
     const inVisible = (list: typeof publishedCampaigns) =>
@@ -706,6 +766,8 @@ export function RebuildAdmin() {
     const pubVis = inVisible(publishedCampaigns)
     const planVis = inVisible(plannedCampaigns)
     const finVis = inVisible(finishedCampaigns)
+    const redTkCount = filteredTkRows.filter((t) => t.alertLevel === "red").length
+    const orangeTkCount = filteredTkRows.filter((t) => t.alertLevel === "orange").length
     const conflictBookingsCount = evaluatedBookings.filter((b) => b._hasConflict).length
 
     return {
@@ -714,7 +776,9 @@ export function RebuildAdmin() {
       smCount: filteredTkRows.filter((t) => t.format === "СМ").length,
       tkBroadcastingCount: filteredTkRows.filter((t) => t.activeList.length > 0).length,
       tkPlannedCount: filteredTkRows.filter((t) => t.plannedList.length > 0).length,
-      overLimitTkCount: filteredTkRows.filter((t) => t.isOverLimit).length,
+      overLimitTkCount: redTkCount + orangeTkCount,
+      redTkCount,
+      orangeTkCount,
       expiringCount: pubVis.filter((c) => c._isExpiringSoon).length,
       publishedCount: pubVis.length,
       plannedCount: planVis.length,
@@ -731,11 +795,12 @@ export function RebuildAdmin() {
       "Адрес",
       `Суммарно сек (лимит ${TK_QUOTAS.TOTAL_MAX})`,
       `Платно сек (лимит ${TK_QUOTAS.PAID_MAX})`,
-      `Бесплатно сек (лимит ${TK_QUOTAS.FREE_MAX})`,
-      "Из них в брони (сек)",
-      "План (сек)",
-      "Ближайшее освобождение",
-      "Активные РК и Брони",
+      "Свободно в платном (сек)",
+      `Бесплатно сек (база ${TK_QUOTAS.FREE_MAX})`,
+      "Опубликовано",
+      "Запланировано",
+      "Статус квоты",
+      "Подробный список РК",
     ]
     const csvRows = filteredTkRows.map((tk) => [
       tk.number,
@@ -744,20 +809,13 @@ export function RebuildAdmin() {
       `"${tk.address.replace(/"/g, '""')}"`,
       tk.totalDuration,
       tk.paidDuration,
+      Math.max(0, tk.paidRemainingSec),
       tk.freeDuration,
-      tk.bookedTotalDuration,
-      tk.plannedDuration,
-      tk.earliestEndDate ? `-${tk.freedSeconds}с после ${tk.earliestEndDate}` : "—",
-      `"${[
-        ...tk.shownList.map(
-          (c) => `${c.name} (${c.client}, ${c.duration}с, ${c._type}, ${c._statusOnDate})`
-        ),
-        ...(includeBookingsInTk
-          ? tk.bookingsInTk.map(
-              (b) => `БРОНЬ №${b._rank}: ${b.surname} (${b.duration}с, ${b.payerType})`
-            )
-          : []),
-      ]
+      `"${tk.activeList.length} РК на ${tk.airTotalDuration} сек"`,
+      `"${tk.plannedList.length} РК на ${tk.plannedDuration} сек"`,
+      `"${tk.alertReason}"`,
+      `"${tk.shownList
+        .map((c) => `[${c._statusOnDate.toUpperCase()}] ${c.name} (${c.client}, ${c.duration}с, ${c._type})`)
         .join(" | ")
         .replace(/"/g, '""')}"`,
     ])
@@ -778,7 +836,7 @@ export function RebuildAdmin() {
     setOnlyWithAds(false)
     setOnlyOverLimit(false)
     setOnlyExpiringSoon(false)
-    setIncludeBookingsInTk(true)
+    setIncludeBookingsInTk(false)
     setSelectedDate(new Date())
     setStatusFilter("active_and_planned")
     setCampaignTypeFilter("")
@@ -792,20 +850,20 @@ export function RebuildAdmin() {
   const getStatusBadge = (status: CampaignStatusLabel, startDate?: string) => {
     if (status === "опубликовано") {
       return (
-        <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white shadow-2xs">
           опубликовано
         </span>
       )
     }
     if (status === "запланировано") {
       return (
-        <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white shadow-2xs">
           запланировано {startDate ? `(с ${formatShortDate(startDate)})` : ""}
         </span>
       )
     }
     return (
-      <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border border-zinc-500/30">
+      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-zinc-500/20 text-zinc-700 dark:text-zinc-300 border border-zinc-500/30">
         завершён
       </span>
     )
@@ -947,7 +1005,8 @@ export function RebuildAdmin() {
             <div className="grid gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <Label>
-                  Список ТК ({bSelectedSet.size} выбр.) <span className="text-destructive">*</span>
+                  Список ТК ({bSelectedSet.size} наших ТК выбр.){" "}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <div className="flex items-center gap-1.5 text-xs">
                   <button
@@ -988,7 +1047,30 @@ export function RebuildAdmin() {
                 placeholder="Укажите номера ТК через запятую (например: 2, 3, 15)"
                 value={bTkNumbers}
                 onChange={(e) => setBTkNumbers(e.target.value)}
+                className={cn(bParsedTk.unknownNumbers.length > 0 && "border-destructive")}
               />
+
+              {/* УВЕДОМЛЕНИЕ О ЧУЖИХ ТК, КОТОРЫХ НЕТ В БАЗЕ ДАННЫХ */}
+              {bParsedTk.unknownNumbers.length > 0 && (
+                <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-center justify-between gap-2">
+                  <div className="flex items-start gap-1.5">
+                    <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+                    <div>
+                      <strong>Эти ТК к нам не относятся (отсутствуют в базе данных):</strong>{" "}
+                      №{bParsedTk.unknownNumbers.join(", №")}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs shrink-0"
+                    onClick={removeUnknownBTks}
+                  >
+                    Удалить лишние ТК
+                  </Button>
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <p className="text-[11px] text-muted-foreground">
@@ -1059,24 +1141,40 @@ export function RebuildAdmin() {
               )}
             </div>
 
-            {/* Превентивное уведомление о конфликте с эфиром или ранее внесенными бронями */}
-            {draftBookingConflicts.length > 0 && (
-              <div className="p-2.5 rounded-md border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
+            {/* КРАСНОЕ ПРЕДУПРЕЖДЕНИЕ (превышен лимит 180с / 125с или в платном осталось 0–5с) */}
+            {draftRedConflicts.length > 0 && (
+              <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
-                  Внимание: превышение квоты (с учетом действующих РК и более ранних броней) в{" "}
-                  {draftBookingConflicts.length} ТК!
+                  Красное предупреждение: критический перегруз хронометража в {draftRedConflicts.length} ТК!
                 </div>
                 <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
-                  {draftBookingConflicts.map((c) => (
+                  {draftRedConflicts.map((c) => (
                     <div key={c.tkNumber}>
-                      • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: Суммарно{" "}
+                      • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: {c.reason} (Всего{" "}
                       <strong>{c.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
                       <strong>{c.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл.{" "}
-                      <strong>{c.freeSec}/{TK_QUOTAS.FREE_MAX}с</strong>
-                      {c.priorBookingsInTk.length > 0 && (
-                        <span> (ранее в очереди: {c.priorBookingsInTk.join(", ")})</span>
-                      )}
+                      <strong>{c.freeSec}с</strong>)
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ОРАНЖЕВОЕ ПРЕДУПРЕЖДЕНИЕ (при прогрузке бесплатных в платном осталось 10–20с) */}
+            {draftOrangeConflicts.length > 0 && (
+              <div className="p-2.5 rounded-md border border-orange-500/50 bg-orange-500/15 text-orange-800 dark:text-orange-300 text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-orange-600" />
+                  Оранжевое предупреждение: в {draftOrangeConflicts.length} ТК в платном хронометраже осталось от 10 до 20 сек!
+                </div>
+                <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
+                  {draftOrangeConflicts.map((c) => (
+                    <div key={c.tkNumber}>
+                      • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: {c.reason} (Всего{" "}
+                      <strong>{c.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
+                      <strong>{c.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл.{" "}
+                      <strong>{c.freeSec}с</strong>)
                     </div>
                   ))}
                 </div>
@@ -1180,6 +1278,7 @@ export function RebuildAdmin() {
                 </Button>
               </div>
 
+              {/* Цветовая дифференциация в переключателе статусов */}
               <div className="inline-flex rounded border bg-muted/40 p-0.5 text-xs">
                 <button
                   onClick={() => setStatusFilter("active_and_planned")}
@@ -1195,10 +1294,10 @@ export function RebuildAdmin() {
                 <button
                   onClick={() => setStatusFilter("опубликовано")}
                   className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-colors",
+                    "px-2 py-0.5 rounded font-semibold transition-colors",
                     statusFilter === "опубликовано"
                       ? "bg-emerald-600 text-white"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
                   )}
                 >
                   Опубликовано ({stats.publishedCount})
@@ -1206,10 +1305,10 @@ export function RebuildAdmin() {
                 <button
                   onClick={() => setStatusFilter("запланировано")}
                   className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-colors",
+                    "px-2 py-0.5 rounded font-semibold transition-colors",
                     statusFilter === "запланировано"
                       ? "bg-blue-600 text-white"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-blue-700 dark:text-blue-400 hover:bg-blue-500/10"
                   )}
                 >
                   Запланировано ({stats.plannedCount})
@@ -1369,8 +1468,8 @@ export function RebuildAdmin() {
                 className="h-6 w-[150px] text-xs px-2"
               />
 
-              {/* Пункт 1: Переключатель учета броней в счетчиках ТК */}
-              <label className="flex items-center gap-1 cursor-pointer select-none px-2 py-0.5 rounded border bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 font-semibold">
+              {/* По умолчанию отключено (false) */}
+              <label className="flex items-center gap-1 cursor-pointer select-none px-2 py-0.5 rounded border bg-muted/40 text-muted-foreground hover:text-foreground">
                 <input
                   type="checkbox"
                   checked={includeBookingsInTk}
@@ -1403,7 +1502,7 @@ export function RebuildAdmin() {
                   checked={onlyOverLimit}
                   onChange={(e) => setOnlyOverLimit(e.target.checked)}
                 />
-                Превышение лимита ({stats.overLimitTkCount})
+                Предупреждения квот ({stats.overLimitTkCount})
               </label>
             </div>
 
@@ -1436,7 +1535,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Сводка */}
+      {/* Верхняя сводка с цветовой дифференциацией */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
@@ -1449,24 +1548,24 @@ export function RebuildAdmin() {
             </div>
           </div>
 
-          <div className="bg-card border rounded px-3 py-1.5">
-            <div className="text-[11px] text-muted-foreground">
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-1.5">
+            <div className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
               Опубликовано на {format(selectedDate, "dd.MM.yyyy")}
             </div>
-            <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+            <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
               {stats.publishedCount} РК{" "}
-              <span className="text-xs font-normal text-muted-foreground">
+              <span className="text-xs font-normal opacity-80">
                 (в {stats.tkBroadcastingCount} ТК)
               </span>
             </div>
           </div>
 
-          <div className="bg-card border rounded px-3 py-1.5">
-            <div className="text-[11px] text-muted-foreground">
-              Запланировано / Очередь брони
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded px-3 py-1.5">
+            <div className="text-[11px] text-blue-800 dark:text-blue-300 font-medium">
+              Запланировано / Бронь
             </div>
-            <div className="text-sm font-bold text-blue-600 dark:text-blue-400">
-              {stats.plannedCount} план •{" "}
+            <div className="text-sm font-bold text-blue-700 dark:text-blue-400">
+              {stats.plannedCount} РК (в {stats.tkPlannedCount} ТК) •{" "}
               <button
                 type="button"
                 onClick={() => setViewMode("bookings")}
@@ -1474,61 +1573,58 @@ export function RebuildAdmin() {
               >
                 {evaluatedBookings.length} бронь
               </button>
-              {stats.conflictBookingsCount > 0 && (
-                <span className="ml-1 text-xs text-red-600 font-semibold">
-                  ({stats.conflictBookingsCount} конфл.)
-                </span>
-              )}
             </div>
           </div>
 
           <div className="bg-card border rounded px-3 py-1.5">
-            <div className="text-[11px] text-muted-foreground">Квота ТК (кратно 5 сек)</div>
-            <div className="text-xs font-semibold mt-0.5">
-              Всего: <span className="font-bold">{TK_QUOTAS.TOTAL_MAX}с</span>{" "}
-              <span className="text-muted-foreground">
-                (Платно 70%: <strong className="text-foreground">{TK_QUOTAS.PAID_MAX}с</strong> • Беспл. 30%:{" "}
-                <strong className="text-foreground">{TK_QUOTAS.FREE_MAX}с</strong>)
-              </span>
+            <div className="text-[11px] text-muted-foreground">Правило квот ТК (180с)</div>
+            <div className="text-[11px] font-semibold mt-0.5 leading-tight">
+              Платно ≤ <strong>{TK_QUOTAS.PAID_MAX}с</strong> • Беспл. без пред. при остатке платного{" "}
+              <strong>&gt;20с</strong>
             </div>
           </div>
 
           <div
             className={cn(
               "border rounded px-3 py-1.5",
-              stats.overLimitTkCount > 0
+              stats.redTkCount > 0
                 ? "bg-red-500/15 border-red-500 text-red-700 dark:text-red-300"
+                : stats.orangeTkCount > 0
+                ? "bg-orange-500/15 border-orange-500 text-orange-800 dark:text-orange-300"
                 : "bg-card"
             )}
           >
-            <div className="text-[11px] opacity-80">
-              Превышение лимитов {includeBookingsInTk ? "(Эфир + Бронь)" : "(Только эфир)"}
-            </div>
-            <div className="text-sm font-bold flex items-center gap-1">
-              {stats.overLimitTkCount > 0 && <AlertTriangle className="w-4 h-4 shrink-0" />}
-              {stats.overLimitTkCount} ТК
+            <div className="text-[11px] opacity-80">Статус хронометража ТК</div>
+            <div className="text-xs font-bold flex items-center gap-2 mt-0.5">
+              <span className={cn(stats.redTkCount > 0 && "text-red-600 dark:text-red-400")}>
+                Красных: {stats.redTkCount}
+              </span>
+              <span>•</span>
+              <span className={cn(stats.orangeTkCount > 0 && "text-orange-600 dark:text-orange-400")}>
+                Оранжевых: {stats.orangeTkCount}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Основная область */}
+      {/* Основная таблица */}
       <div className="max-w-[1920px] w-full mx-auto px-3 mt-2 flex-1">
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground bg-card border rounded text-xs">
             Загрузка расписания...
           </div>
         ) : viewMode === "bookings" ? (
-          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ С РАСЧЕТОМ ПРИОРИТЕТА И КОНФЛИКТОВ (FIFO) */
+          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="px-4 py-3 border-b bg-amber-500/10 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-bold flex items-center gap-1.5">
                   <BookmarkCheck className="w-4 h-4 text-amber-600" />
-                  Список бронирования (очередь по времени внесения + контроль квот по приоритету)
+                  Список бронирования (сортировка по времени внесения: кто первым внёс — тот №1)
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Кто первым внёс данные, тот стоит в начале списка (№1) и имеет приоритет квоты 180с (125с / 55с) перед следующими бронями
+                  Оранжевое предупреждение — остаток платного 10–20с; Красное — остаток платного 0–5с или превышен лимит 180с
                 </p>
               </div>
               <Button
@@ -1552,7 +1648,7 @@ export function RebuildAdmin() {
                     <th className="px-3 py-2 text-center border-r w-[85px]">Формат</th>
                     <th className="px-3 py-2 text-center border-r w-[100px]">Тип</th>
                     <th className="px-3 py-2 text-center border-r w-[95px]">Хронометраж</th>
-                    <th className="px-3 py-2 text-left border-r w-[280px]">
+                    <th className="px-3 py-2 text-left border-r w-[290px]">
                       Статус квоты (с учетом приоритета очереди)
                     </th>
                     <th className="px-3 py-2 text-left border-r">Список ТК</th>
@@ -1572,7 +1668,11 @@ export function RebuildAdmin() {
                       key={b.id}
                       className={cn(
                         "border-b transition-colors align-middle",
-                        b._hasConflict ? "bg-red-500/10 hover:bg-red-500/15" : "hover:bg-muted/20"
+                        b._alertLevel === "red"
+                          ? "bg-red-500/10 hover:bg-red-500/15"
+                          : b._alertLevel === "orange"
+                          ? "bg-orange-500/10 hover:bg-orange-500/15"
+                          : "hover:bg-muted/20"
                       )}
                     >
                       <td className="px-3 py-2 border-r font-bold">
@@ -1608,27 +1708,36 @@ export function RebuildAdmin() {
                         {b.duration} сек
                       </td>
 
-                      {/* Пункт 2: Статус квоты с учетом приоритета очереди */}
                       <td className="px-3 py-2 border-r">
-                        {!b._hasConflict ? (
+                        {b._alertLevel === "ok" ? (
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 font-semibold text-[11px]">
                             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                             В квоте (Приоритет №{b._rank})
                           </div>
                         ) : (
                           <div className="space-y-1">
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white font-bold text-[11px]">
+                            <div
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded text-white font-bold text-[11px]",
+                                b._alertLevel === "red" ? "bg-red-600" : "bg-orange-500"
+                              )}
+                            >
                               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                              Перегруз в {b._conflicts.length} ТК
+                              {b._alertLevel === "red"
+                                ? `Красное пред. в ${b._conflicts.filter((c) => c.level === "red").length} ТК`
+                                : `Оранжевое пред. в ${b._conflicts.length} ТК`}
                             </div>
-                            <div className="text-[10px] text-red-700 dark:text-red-300 max-h-16 overflow-y-auto space-y-0.5">
+                            <div className="text-[10px] max-h-16 overflow-y-auto space-y-0.5">
                               {b._conflicts.slice(0, 4).map((c) => (
-                                <div key={c.tkNumber}>
-                                  ТК №{c.tkNumber} ({c.peakDate}): {c.totalSec}/{TK_QUOTAS.TOTAL_MAX}с (пл.{" "}
-                                  {c.paidSec}/{TK_QUOTAS.PAID_MAX}с, б/п {c.freeSec}/{TK_QUOTAS.FREE_MAX}с)
-                                  {c.priorBookingsInTk.length > 0 && (
-                                    <span> • впереди: {c.priorBookingsInTk.join(", ")}</span>
+                                <div
+                                  key={c.tkNumber}
+                                  className={cn(
+                                    c.level === "red"
+                                      ? "text-red-700 dark:text-red-300 font-medium"
+                                      : "text-orange-800 dark:text-orange-300"
                                   )}
+                                >
+                                  ТК №{c.tkNumber} ({c.peakDate}): {c.reason}
                                 </div>
                               ))}
                               {b._conflicts.length > 4 && (
@@ -1668,7 +1777,7 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : viewMode === "list" ? (
-          /* ВИД 1: СПИСОК ТК С УЧЕТОМ БРОНЕЙ */
+          /* ВИД 1: КОМПАКТНЫЙ СПИСОК ТК С КНОПКОЙ РАЗВЕРНУТЬ И ЦВЕТОВОЙ ДИФФЕРЕНЦИАЦИЕЙ */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
@@ -1676,23 +1785,43 @@ export function RebuildAdmin() {
                   <tr>
                     <th className="px-2 py-1.5 text-left border-r w-[54px]">№ ТК</th>
                     <th className="px-1.5 py-1.5 text-center border-r w-[48px]">Форм.</th>
-                    <th className="px-2 py-1.5 text-left border-r w-[130px]">Город</th>
-                    <th className="px-2 py-1.5 text-left border-r w-[210px]">Адрес</th>
-                    <th className="px-2 py-1.5 text-center border-r w-[104px]">
+                    <th className="px-2 py-1.5 text-left border-r w-[125px]">Город</th>
+                    <th className="px-2 py-1.5 text-left border-r w-[205px]">Адрес</th>
+                    <th className="px-2 py-1.5 text-center border-r w-[102px]">
                       Суммарно (≤{TK_QUOTAS.TOTAL_MAX}с)
                     </th>
-                    <th className="px-2 py-1.5 text-center border-r w-[104px]">
-                      Платно 70% (≤{TK_QUOTAS.PAID_MAX}с)
+                    <th className="px-2 py-1.5 text-center border-r w-[112px]">
+                      Платно (≤{TK_QUOTAS.PAID_MAX}с)
                     </th>
-                    <th className="px-2 py-1.5 text-center border-r w-[104px]">
-                      Беспл. 30% (≤{TK_QUOTAS.FREE_MAX}с)
+                    <th className="px-2 py-1.5 text-center border-r w-[102px]">
+                      Бесплатно (30%)
                     </th>
-                    <th className="px-2 py-1.5 text-center border-r w-[115px]">
-                      Освободится / План
+                    <th className="px-2 py-1.5 text-center border-r w-[95px]">
+                      Освободится
                     </th>
-                    <th className="px-2 py-1.5 text-left">
-                      Рекламные кампании {includeBookingsInTk ? "и активные брони " : ""}на{" "}
-                      {format(selectedDate, "dd.MM.yyyy")}
+                    <th className="px-2.5 py-1.5 text-left">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>
+                          Рекламные кампании на {format(selectedDate, "dd.MM.yyyy")}
+                        </span>
+                        {allExpandableNums.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={toggleExpandAll}
+                            className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5"
+                          >
+                            {areAllExpanded ? (
+                              <>
+                                Свернуть все <ChevronUp className="w-3.5 h-3.5" />
+                              </>
+                            ) : (
+                              <>
+                                Развернуть все <ChevronDown className="w-3.5 h-3.5" />
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </th>
                   </tr>
                 </thead>
@@ -1704,123 +1833,138 @@ export function RebuildAdmin() {
                       </td>
                     </tr>
                   )}
-                  {filteredTkRows.map((tk) => (
-                    <tr
-                      key={tk.number}
-                      className={cn(
-                        "border-b transition-colors align-middle",
-                        tk.isOverLimit ? "bg-red-500/10 hover:bg-red-500/15" : "hover:bg-muted/20"
-                      )}
-                    >
-                      <td
+                  {filteredTkRows.map((tk) => {
+                    const isExpanded = expandedTkSet.has(tk.number)
+                    return (
+                      <tr
+                        key={tk.number}
                         className={cn(
-                          "px-2 py-1 font-bold border-r whitespace-nowrap",
-                          tk.isOverLimit && "bg-red-600 text-white"
+                          "border-b transition-colors align-middle",
+                          tk.alertLevel === "red"
+                            ? "bg-red-500/10 hover:bg-red-500/15"
+                            : tk.alertLevel === "orange"
+                            ? "bg-orange-500/10 hover:bg-orange-500/15"
+                            : "hover:bg-muted/20"
                         )}
                       >
-                        №{tk.number}
-                      </td>
-                      <td className="px-1.5 py-1 text-center border-r">
-                        <span
+                        {/* Ячейка № ТК: красная при red, оранжевая при orange */}
+                        <td
                           className={cn(
-                            "inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold",
-                            tk.format === "ГМ" ? "bg-primary/15 text-primary" : "bg-muted text-foreground"
+                            "px-2 py-1 font-bold border-r whitespace-nowrap",
+                            tk.alertLevel === "red" && "bg-red-600 text-white",
+                            tk.alertLevel === "orange" && "bg-orange-500 text-white"
+                          )}
+                          title={tk.alertReason}
+                        >
+                          №{tk.number}
+                        </td>
+
+                        <td className="px-1.5 py-1 text-center border-r">
+                          <span
+                            className={cn(
+                              "inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold",
+                              tk.format === "ГМ"
+                                ? "bg-primary/15 text-primary"
+                                : "bg-muted text-foreground"
+                            )}
+                          >
+                            {tk.format}
+                          </span>
+                        </td>
+
+                        <td className="px-2 py-1 font-medium border-r whitespace-nowrap">
+                          {tk.city}
+                        </td>
+
+                        <td
+                          className="px-2 py-1 text-foreground/90 border-r truncate max-w-[205px]"
+                          title={tk.address}
+                        >
+                          {tk.address}
+                        </td>
+
+                        {/* Суммарно */}
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center border-r whitespace-nowrap font-mono font-bold",
+                            tk.isOverTotal
+                              ? "bg-red-600 text-white"
+                              : tk.alertLevel === "red"
+                              ? "text-red-700 dark:text-red-400"
+                              : tk.alertLevel === "orange"
+                              ? "text-orange-700 dark:text-orange-400"
+                              : tk.totalDuration > 0
+                              ? "text-foreground"
+                              : "text-muted-foreground font-normal"
                           )}
                         >
-                          {tk.format}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1 font-medium border-r whitespace-nowrap">{tk.city}</td>
-                      <td
-                        className="px-2 py-1 text-foreground/90 border-r truncate max-w-[210px]"
-                        title={tk.address}
-                      >
-                        {tk.address}
-                      </td>
+                          <div>
+                            {tk.totalDuration} / {TK_QUOTAS.TOTAL_MAX}с
+                          </div>
+                          {includeBookingsInTk && tk.bookedTotalDuration > 0 && (
+                            <div className="text-[9px] font-normal text-amber-600 dark:text-amber-400">
+                              +бронь {tk.bookedTotalDuration}с
+                            </div>
+                          )}
+                        </td>
 
-                      {/* Суммарно */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 text-center border-r whitespace-nowrap font-mono font-bold",
-                          tk.isOverTotal
-                            ? "bg-red-600 text-white"
-                            : tk.isOverLimit
-                            ? "text-red-700 dark:text-red-400"
-                            : tk.totalDuration > 0
-                            ? "text-foreground"
-                            : "text-muted-foreground font-normal"
-                        )}
-                      >
-                        <div>
-                          {tk.totalDuration} / {TK_QUOTAS.TOTAL_MAX}с
-                        </div>
-                        {includeBookingsInTk && tk.bookedTotalDuration > 0 && (
+                        {/* Платно + остаток */}
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
+                            tk.isOverPaid
+                              ? "bg-red-600 text-white font-bold"
+                              : tk.paidDuration > 0
+                              ? "text-emerald-700 dark:text-emerald-400 font-semibold"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          <div>
+                            {tk.paidDuration} / {TK_QUOTAS.PAID_MAX}с
+                          </div>
                           <div
                             className={cn(
                               "text-[9px] font-normal",
-                              tk.isOverTotal ? "text-white/90" : "text-amber-600 dark:text-amber-400"
+                              tk.isOverPaid
+                                ? "text-white/90"
+                                : tk.paidRemainingSec <= 5 && tk.freeDuration > 0
+                                ? "text-red-600 dark:text-red-400 font-bold"
+                                : tk.paidRemainingSec <= 20 && tk.freeDuration > 0
+                                ? "text-orange-600 dark:text-orange-400 font-bold"
+                                : "text-muted-foreground"
                             )}
                           >
-                            в т.ч. бронь {tk.bookedTotalDuration}с
+                            своб: {Math.max(0, tk.paidRemainingSec)}с
                           </div>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Платно */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
-                          tk.isOverPaid
-                            ? "bg-red-600 text-white font-bold"
-                            : tk.paidDuration > 0
-                            ? "text-emerald-700 dark:text-emerald-400 font-semibold"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        <div>
-                          {tk.paidDuration} / {TK_QUOTAS.PAID_MAX}с
-                        </div>
-                        {includeBookingsInTk && tk.bookedPaidDuration > 0 && (
-                          <div
-                            className={cn(
-                              "text-[9px] font-normal",
-                              tk.isOverPaid ? "text-white/90" : "text-amber-600 dark:text-amber-400"
-                            )}
-                          >
-                            бронь +{tk.bookedPaidDuration}с
+                        {/* Бесплатно (с новой логикой оранжевого/красного предупреждения) */}
+                        <td
+                          className={cn(
+                            "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
+                            tk.freeDuration > 0 && tk.paidRemainingSec <= 5
+                              ? "bg-red-600 text-white font-bold"
+                              : tk.freeDuration > 0 && tk.paidRemainingSec <= 20
+                              ? "bg-orange-500 text-white font-bold"
+                              : tk.freeDuration > 0
+                              ? "text-amber-700 dark:text-amber-400 font-semibold"
+                              : "text-muted-foreground"
+                          )}
+                          title={tk.alertReason}
+                        >
+                          <div>
+                            {tk.freeDuration} / {TK_QUOTAS.FREE_MAX}с
                           </div>
-                        )}
-                      </td>
+                          {tk.freeDuration > TK_QUOTAS.FREE_MAX && tk.paidRemainingSec > 20 && (
+                            <div className="text-[9px] font-normal text-emerald-600 dark:text-emerald-400">
+                              резерв &gt;20с OK
+                            </div>
+                          )}
+                        </td>
 
-                      {/* Бесплатно */}
-                      <td
-                        className={cn(
-                          "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
-                          tk.isOverFree
-                            ? "bg-red-600 text-white font-bold"
-                            : tk.freeDuration > 0
-                            ? "text-amber-700 dark:text-amber-400 font-semibold"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        <div>
-                          {tk.freeDuration} / {TK_QUOTAS.FREE_MAX}с
-                        </div>
-                        {includeBookingsInTk && tk.bookedFreeDuration > 0 && (
-                          <div
-                            className={cn(
-                              "text-[9px] font-normal",
-                              tk.isOverFree ? "text-white/90" : "text-amber-600 dark:text-amber-400"
-                            )}
-                          >
-                            бронь +{tk.bookedFreeDuration}с
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-2 py-1 text-center border-r whitespace-nowrap">
-                        <div className="flex flex-col items-center gap-0.5">
-                          {tk.earliestEndDate && (
+                        {/* Освободится */}
+                        <td className="px-2 py-1 text-center border-r whitespace-nowrap">
+                          {tk.earliestEndDate ? (
                             <span
                               className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
                               title={`После ${tk.earliestEndDate} освободится ${tk.freedSeconds} сек`}
@@ -1828,93 +1972,168 @@ export function RebuildAdmin() {
                               <Clock className="w-2.5 h-2.5" />-{tk.freedSeconds}с с{" "}
                               {formatShortDate(tk.earliestEndDate)}
                             </span>
-                          )}
-                          {tk.plannedList.length > 0 && (
-                            <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-400">
-                              План: {tk.plannedList.length} РК ({tk.plannedDuration}с)
-                            </span>
-                          )}
-                          {!tk.earliestEndDate && tk.plannedList.length === 0 && (
+                          ) : (
                             <span className="text-[11px] text-muted-foreground">—</span>
                           )}
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="px-2 py-1">
-                        {!tk.hasAnyItems ? (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {tk.shownList.map((camp) => (
-                              <div
-                                key={`c-${camp.id}`}
-                                className={cn(
-                                  "inline-flex items-center gap-1 border rounded px-1.5 py-0.5 text-[11px]",
-                                  camp._statusOnDate === "запланировано"
-                                    ? "bg-blue-500/10 border-blue-500/30"
-                                    : camp._statusOnDate === "завершён"
-                                    ? "bg-zinc-500/10 border-zinc-500/30 opacity-75"
-                                    : "bg-background border-border"
-                                )}
-                                title={`${camp.name} | Заказчик: ${camp.client} | Статус: ${camp._statusOnDate} | Формат: ${camp._format} | Тип: ${camp._type} | Период: ${camp.startDate} — ${camp.endDate}`}
-                              >
-                                <span className="font-semibold">{camp.name}</span>
-                                <span className="text-muted-foreground">({camp.client})</span>
-                                <span className="font-mono font-bold text-primary">{camp.duration}с</span>
-                                <span className="text-[10px] px-1 rounded bg-muted">{camp._format}</span>
-                                <span
-                                  className={cn(
-                                    "text-[10px] font-medium",
-                                    camp._isPaid
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-amber-600 dark:text-amber-400"
-                                  )}
-                                >
-                                  {camp._type}
-                                </span>
-                                {getStatusBadge(camp._statusOnDate, camp.startDate)}
-                              </div>
-                            ))}
+                        {/* КОМПАКТНЫЙ СТОЛБЕЦ РЕКЛАМНЫХ КАМПАНИЙ С КНОПКОЙ РАЗВЕРНУТЬ */}
+                        <td className="px-2.5 py-1">
+                          {!tk.hasAnyItems && tk.plannedList.length === 0 ? (
+                            <span className="text-[11px] text-muted-foreground">
+                              опубликовано: 0 РК (0 сек) • запланировано: 0 РК (0 сек)
+                            </span>
+                          ) : (
+                            <div>
+                              {/* Компактная строка-сводка с цветовой дифференциацией */}
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {/* Зеленая капсула ОПУБЛИКОВАНО */}
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border",
+                                      tk.activeList.length > 0
+                                        ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/40 font-semibold"
+                                        : "bg-muted/40 text-muted-foreground border-transparent"
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "w-2 h-2 rounded-full",
+                                        tk.activeList.length > 0
+                                          ? "bg-emerald-500"
+                                          : "bg-muted-foreground/40"
+                                      )}
+                                    />
+                                    опубликовано: <strong>{tk.activeList.length} РК</strong> на{" "}
+                                    <strong className="font-mono">{tk.airTotalDuration} сек</strong>
+                                  </span>
 
-                            {/* Плашки броней на выбранную дату в этом ТК */}
-                            {includeBookingsInTk &&
-                              tk.bookingsInTk.map((b) => (
-                                <div
-                                  key={`b-${b.id}`}
-                                  className={cn(
-                                    "inline-flex items-center gap-1 border rounded px-1.5 py-0.5 text-[11px]",
-                                    b._hasConflict
-                                      ? "bg-red-500/15 border-red-500/40"
-                                      : "bg-amber-500/15 border-amber-500/40"
+                                  {/* Синяя капсула ЗАПЛАНИРОВАНО */}
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border",
+                                      tk.plannedList.length > 0
+                                        ? "bg-blue-500/15 text-blue-800 dark:text-blue-300 border-blue-500/40 font-semibold"
+                                        : "bg-muted/40 text-muted-foreground border-transparent"
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "w-2 h-2 rounded-full",
+                                        tk.plannedList.length > 0
+                                          ? "bg-blue-500"
+                                          : "bg-muted-foreground/40"
+                                      )}
+                                    />
+                                    запланировано: <strong>{tk.plannedList.length} РК</strong> на{" "}
+                                    <strong className="font-mono">{tk.plannedDuration} сек</strong>
+                                  </span>
+
+                                  {/* Если включен учет броней */}
+                                  {includeBookingsInTk && tk.bookingsInTk.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/40 font-semibold">
+                                      бронь: {tk.bookingsInTk.length} на {tk.bookedTotalDuration} сек
+                                    </span>
                                   )}
-                                  title={`Бронь №${b._rank}: ${b.surname} | Период: ${b.startDate} — ${b.endDate} | Формат: ${b.format} | Тип: ${b.payerType}`}
-                                >
-                                  <span className="px-1 rounded bg-amber-600 text-white text-[10px] font-bold">
-                                    бронь №{b._rank}
-                                  </span>
-                                  <span className="font-semibold">{b.surname}</span>
-                                  <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
-                                    {b.duration}с
-                                  </span>
-                                  <span className="text-[10px] px-1 rounded bg-background/80">
-                                    {b.format}
-                                  </span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {b.payerType}
-                                  </span>
                                 </div>
-                              ))}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpandTk(tk.number)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded border bg-background hover:bg-accent text-[11px] font-medium text-primary shrink-0 transition-colors"
+                                >
+                                  {isExpanded ? (
+                                    <>
+                                      Свернуть <ChevronUp className="w-3 h-3" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      Развернуть <ChevronDown className="w-3 h-3" />
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+
+                              {/* Развернутый подробный список с четким цветовым разделением */}
+                              {isExpanded && (
+                                <div className="mt-2 pt-2 border-t flex flex-wrap gap-1.5">
+                                  {tk.shownList.map((camp) => {
+                                    const isPub = camp._statusOnDate === "опубликовано"
+                                    const isPlan = camp._statusOnDate === "запланировано"
+                                    return (
+                                      <div
+                                        key={`c-${camp.id}`}
+                                        className={cn(
+                                          "inline-flex items-center gap-1.5 border rounded px-2 py-1 text-[11px] border-l-4",
+                                          isPub &&
+                                            "bg-emerald-500/10 border-emerald-500/30 border-l-emerald-600",
+                                          isPlan &&
+                                            "bg-blue-500/10 border-blue-500/30 border-l-blue-600",
+                                          !isPub &&
+                                            !isPlan &&
+                                            "bg-zinc-500/10 border-zinc-500/30 border-l-zinc-500 opacity-75"
+                                        )}
+                                        title={`${camp.name} | Заказчик: ${camp.client} | Статус: ${camp._statusOnDate} | Формат: ${camp._format} | Тип: ${camp._type} | Период: ${camp.startDate} — ${camp.endDate}`}
+                                      >
+                                        <span className="font-semibold">{camp.name}</span>
+                                        <span className="text-muted-foreground">
+                                          ({camp.client})
+                                        </span>
+                                        <span className="font-mono font-bold text-primary">
+                                          {camp.duration}с
+                                        </span>
+                                        <span className="text-[10px] px-1 rounded bg-background/80">
+                                          {camp._format}
+                                        </span>
+                                        <span
+                                          className={cn(
+                                            "text-[10px] font-semibold",
+                                            camp._isPaid
+                                              ? "text-emerald-700 dark:text-emerald-400"
+                                              : "text-amber-700 dark:text-amber-400"
+                                          )}
+                                        >
+                                          {camp._type}
+                                        </span>
+                                        {getStatusBadge(camp._statusOnDate, camp.startDate)}
+                                      </div>
+                                    )
+                                  })}
+
+                                  {includeBookingsInTk &&
+                                    tk.bookingsInTk.map((b) => (
+                                      <div
+                                        key={`b-${b.id}`}
+                                        className="inline-flex items-center gap-1.5 border rounded px-2 py-1 text-[11px] border-l-4 bg-amber-500/15 border-amber-500/40 border-l-amber-600"
+                                      >
+                                        <span className="px-1 rounded bg-amber-600 text-white text-[10px] font-bold">
+                                          бронь №{b._rank}
+                                        </span>
+                                        <span className="font-semibold">{b.surname}</span>
+                                        <span className="font-mono font-bold">{b.duration}с</span>
+                                        <span className="text-[10px] px-1 rounded bg-background/80">
+                                          {b.format}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground">
+                                          {b.payerType}
+                                        </span>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         ) : (
-          /* ВИД 2: МАТРИЦА */
+          /* ВИД 2: МАТРИЦА С ЦВЕТОВОЙ ДИФФЕРЕНЦИАЦИЕЙ ОПУБЛИКОВАНО / ЗАПЛАНИРОВАНО */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-auto max-h-[78vh]">
               <table className="w-full text-xs border-collapse min-w-max">
@@ -1928,15 +2147,16 @@ export function RebuildAdmin() {
                         key={tk.number}
                         className={cn(
                           "px-1 py-1 border-b border-r text-center min-w-[68px] max-w-[78px]",
-                          tk.isOverLimit && "bg-red-600 text-white"
+                          tk.alertLevel === "red" && "bg-red-600 text-white",
+                          tk.alertLevel === "orange" && "bg-orange-500 text-white"
                         )}
-                        title={`ТК №${tk.number} (${tk.city}, ${tk.address}) | Суммарно: ${tk.totalDuration}/${TK_QUOTAS.TOTAL_MAX}с | Платно: ${tk.paidDuration}/${TK_QUOTAS.PAID_MAX}с | Беспл.: ${tk.freeDuration}/${TK_QUOTAS.FREE_MAX}с`}
+                        title={`ТК №${tk.number} (${tk.city}, ${tk.address}) | ${tk.alertReason}`}
                       >
                         <div className="font-bold text-[11px]">№{tk.number}</div>
                         <div
                           className={cn(
                             "text-[9px]",
-                            tk.isOverLimit ? "text-white/90" : "text-muted-foreground"
+                            tk.alertLevel !== "ok" ? "text-white/90" : "text-muted-foreground"
                           )}
                         >
                           {tk.format} • {tk.totalDuration}с
@@ -1946,118 +2166,84 @@ export function RebuildAdmin() {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedCampaigns.map((camp) => (
-                    <tr key={`mc-${camp.id}`} className="border-b hover:bg-muted/20">
-                      <td className="px-2 py-1 border-r sticky left-0 z-10 bg-card">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-semibold text-xs truncate">{camp.name}</span>
-                          {getStatusBadge(camp._statusOnDate, camp.startDate)}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <span className="font-medium text-foreground">{camp.client}</span>
-                          <span>•</span>
-                          <span className="font-mono font-semibold">{camp.duration}с</span>
-                          <span>•</span>
-                          <span>{camp._format}</span>
-                          <span>•</span>
-                          <span
-                            className={cn(
-                              camp._isPaid
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-amber-600 dark:text-amber-400"
-                            )}
-                          >
-                            {camp._type}
-                          </span>
-                        </div>
-                      </td>
-                      {filteredTkRows.map((tk) => {
-                        const isPlaced = camp._scNumbersSet.has(tk.number)
-                        return (
-                          <td
-                            key={tk.number}
-                            className={cn(
-                              "border-r px-0.5 py-1 text-center",
-                              tk.isOverLimit && "bg-red-500/10"
-                            )}
-                          >
-                            {isPlaced ? (
-                              <span
-                                className={cn(
-                                  "inline-block px-1 py-0.2 rounded font-bold text-[10px]",
-                                  camp._statusOnDate === "запланировано"
-                                    ? "bg-blue-600/20 text-blue-700 dark:text-blue-300"
-                                    : camp._statusOnDate === "завершён"
-                                    ? "bg-zinc-500/20 text-zinc-600 dark:text-zinc-400"
-                                    : "bg-primary text-primary-foreground"
-                                )}
-                              >
-                                {camp.duration}с
-                              </span>
-                            ) : null}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-
-                  {/* Строки броней в Матрице, если включен учет брони */}
-                  {includeBookingsInTk &&
-                    activeBookingsOnDate.map((b) => (
-                      <tr key={`mb-${b.id}`} className="border-b bg-amber-500/5 hover:bg-amber-500/10">
-                        <td className="px-2 py-1 border-r sticky left-0 z-10 bg-card">
+                  {displayedCampaigns.map((camp) => {
+                    const isPub = camp._statusOnDate === "опубликовано"
+                    const isPlan = camp._statusOnDate === "запланировано"
+                    return (
+                      <tr key={`mc-${camp.id}`} className="border-b hover:bg-muted/20">
+                        <td
+                          className={cn(
+                            "px-2 py-1 border-r sticky left-0 z-10 bg-card border-l-4",
+                            isPub && "border-l-emerald-600",
+                            isPlan && "border-l-blue-600",
+                            !isPub && !isPlan && "border-l-zinc-400"
+                          )}
+                        >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="font-semibold text-xs truncate">
-                              Бронь: {b.surname}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-600 text-white">
-                              бронь №{b._rank}
-                            </span>
+                            <span className="font-semibold text-xs truncate">{camp.name}</span>
+                            {getStatusBadge(camp._statusOnDate, camp.startDate)}
                           </div>
                           <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <span className="font-mono font-semibold">{b.duration}с</span>
+                            <span className="font-medium text-foreground">{camp.client}</span>
                             <span>•</span>
-                            <span>{b.format}</span>
+                            <span className="font-mono font-semibold">{camp.duration}с</span>
                             <span>•</span>
-                            <span>{b.payerType}</span>
+                            <span>{camp._format}</span>
+                            <span>•</span>
+                            <span
+                              className={cn(
+                                camp._isPaid
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-amber-600 dark:text-amber-400"
+                              )}
+                            >
+                              {camp._type}
+                            </span>
                           </div>
                         </td>
                         {filteredTkRows.map((tk) => {
-                          const isPlaced = b._scSet.has(tk.number)
+                          const isPlaced = camp._scNumbersSet.has(tk.number)
                           return (
                             <td
                               key={tk.number}
                               className={cn(
                                 "border-r px-0.5 py-1 text-center",
-                                tk.isOverLimit && "bg-red-500/10"
+                                tk.alertLevel === "red" && "bg-red-500/10",
+                                tk.alertLevel === "orange" && "bg-orange-500/10"
                               )}
                             >
                               {isPlaced ? (
-                                <span className="inline-block px-1 py-0.2 rounded font-bold text-[10px] bg-amber-600 text-white">
-                                  {b.duration}с
+                                <span
+                                  className={cn(
+                                    "inline-block px-1.5 py-0.2 rounded font-bold text-[10px]",
+                                    isPlan
+                                      ? "bg-blue-600 text-white"
+                                      : isPub
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-zinc-500/20 text-zinc-600 dark:text-zinc-400"
+                                  )}
+                                >
+                                  {camp.duration}с
                                 </span>
                               ) : null}
                             </td>
                           )
                         })}
                       </tr>
-                    ))}
+                    )
+                  })}
 
                   <tr className="bg-muted/40 font-bold border-t-2 text-[11px]">
                     <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted">
-                      Суммарно {includeBookingsInTk ? "(Эфир + Бронь)" : "в эфире"} (лимит{" "}
-                      {TK_QUOTAS.TOTAL_MAX}с)
+                      Суммарно в эфире (лимит {TK_QUOTAS.TOTAL_MAX}с)
                     </td>
                     {filteredTkRows.map((tk) => (
                       <td
                         key={tk.number}
                         className={cn(
                           "px-1 py-1 border-r text-center font-mono",
-                          tk.isOverTotal
-                            ? "bg-red-600 text-white"
-                            : tk.isOverLimit
-                            ? "bg-red-500/20 text-red-700 dark:text-red-300"
-                            : ""
+                          tk.alertLevel === "red" && "bg-red-600 text-white",
+                          tk.alertLevel === "orange" && "bg-orange-500 text-white"
                         )}
                       >
                         {tk.totalDuration}с
@@ -2067,7 +2253,7 @@ export function RebuildAdmin() {
 
                   <tr className="bg-muted/20 text-[10px]">
                     <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted font-medium">
-                      Платно 70% (лимит {TK_QUOTAS.PAID_MAX}с)
+                      Платно (лимит {TK_QUOTAS.PAID_MAX}с)
                     </td>
                     {filteredTkRows.map((tk) => (
                       <td
@@ -2086,15 +2272,17 @@ export function RebuildAdmin() {
 
                   <tr className="bg-muted/20 text-[10px] border-b">
                     <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted font-medium">
-                      Бесплатно 30% (лимит {TK_QUOTAS.FREE_MAX}с)
+                      Бесплатно (30%)
                     </td>
                     {filteredTkRows.map((tk) => (
                       <td
                         key={tk.number}
                         className={cn(
                           "px-1 py-1 border-r text-center font-mono",
-                          tk.isOverFree
+                          tk.freeDuration > 0 && tk.paidRemainingSec <= 5
                             ? "bg-red-600 text-white font-bold"
+                            : tk.freeDuration > 0 && tk.paidRemainingSec <= 20
+                            ? "bg-orange-500 text-white font-bold"
                             : "text-amber-700 dark:text-amber-400"
                         )}
                       >
