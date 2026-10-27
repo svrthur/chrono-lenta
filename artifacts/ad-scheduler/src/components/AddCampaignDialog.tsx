@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, CheckIcon, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react"
+import { CalendarIcon, CheckIcon, AlertTriangle, ChevronDown, ChevronUp, XCircle } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,14 @@ import { Calendar } from "@/components/ui/calendar"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { getApiUrl } from "@/lib/api"
-import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
+import {
+  CITIES,
+  MASTER_TK_LIST,
+  TK_QUOTAS,
+  QuotaAlertLevel,
+  evaluateTkQuota,
+  parseAndValidateTkNumbers,
+} from "@/lib/constants"
 
 export const DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
 export const FORMAT_OPTIONS = ["ГМ", "СМ", "ГМ+СМ", "част.ГМ", "част.СМ"] as const
@@ -108,19 +115,19 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     setErrors((prev) => ({ ...prev, [key]: undefined }))
   }
 
-  const selectedNumbersSet = useMemo(() => {
-    return new Set(
-      form.shoppingCenterNumbers
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    )
-  }, [form.shoppingCenterNumbers])
+  const parsedTk = useMemo(
+    () => parseAndValidateTkNumbers(form.shoppingCenterNumbers),
+    [form.shoppingCenterNumbers]
+  )
+  const selectedNumbersSet = useMemo(() => new Set(parsedTk.validNumbers), [parsedTk.validNumbers])
+
+  const removeUnknownTks = () => {
+    set("shoppingCenterNumbers", parsedTk.validNumbers.join(", "))
+  }
 
   const updateNumbersFromSet = (nextSet: Set<string>) => {
     const ordered = MASTER_TK_LIST.filter((t) => nextSet.has(t.number)).map((t) => t.number)
-    const custom = Array.from(nextSet).filter((n) => !MASTER_TK_LIST.some((t) => t.number === n))
-    set("shoppingCenterNumbers", [...ordered, ...custom].join(", "))
+    set("shoppingCenterNumbers", ordered.join(", "))
   }
 
   const fillTkByFormat = (fmt: "ГМ" | "СМ" | "ГМ+СМ") => {
@@ -162,6 +169,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     updateNumbersFromSet(next)
   }
 
+  // Двухуровневая проверка предупреждений (orange / red)
   const overloadWarnings = useMemo(() => {
     if (!form.startDate || !form.endDate || !form.duration || !form.type || selectedNumbersSet.size === 0) {
       return []
@@ -192,10 +200,14 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
       tkNumber: string
       city: string
       peakDate: string
+      level: "orange" | "red"
+      reason: string
       totalSec: number
       paidSec: number
       freeSec: number
     }[] = []
+
+    const severityRank = (lvl: QuotaAlertLevel) => (lvl === "red" ? 2 : lvl === "orange" ? 1 : 0)
 
     for (const tkNum of Array.from(selectedNumbersSet)) {
       const overlapping = preparedExisting.filter(
@@ -209,9 +221,8 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
         }
       }
 
-      let maxTotal = 0
-      let maxPaid = 0
-      let maxFree = 0
+      let worstLevel: QuotaAlertLevel = "ok"
+      let worstEval = evaluateTkQuota(0, 0)
       let worstDate = startIso
 
       for (const d of Array.from(candidateDates).sort()) {
@@ -223,34 +234,37 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             else free += c.duration
           }
         }
-        const total = paid + free
-        if (total > maxTotal || paid > maxPaid || free > maxFree) {
-          maxTotal = Math.max(maxTotal, total)
-          maxPaid = Math.max(maxPaid, paid)
-          maxFree = Math.max(maxFree, free)
+        const qEval = evaluateTkQuota(paid, free)
+        if (
+          severityRank(qEval.level) > severityRank(worstLevel) ||
+          (severityRank(qEval.level) === severityRank(worstLevel) && qEval.totalSec > worstEval.totalSec)
+        ) {
+          worstLevel = qEval.level
+          worstEval = qEval
           worstDate = d
         }
       }
 
-      if (
-        maxTotal > TK_QUOTAS.TOTAL_MAX ||
-        maxPaid > TK_QUOTAS.PAID_MAX ||
-        maxFree > TK_QUOTAS.FREE_MAX
-      ) {
+      if (worstLevel === "red" || worstLevel === "orange") {
         const tkInfo = MASTER_TK_LIST.find((t) => t.number === tkNum)
         warnings.push({
           tkNumber: tkNum,
           city: tkInfo?.city || "",
           peakDate: worstDate,
-          totalSec: maxTotal,
-          paidSec: maxPaid,
-          freeSec: maxFree,
+          level: worstLevel,
+          reason: worstEval.reason,
+          totalSec: worstEval.totalSec,
+          paidSec: worstEval.paidSec,
+          freeSec: worstEval.freeSec,
         })
       }
     }
 
     return warnings
   }, [form.startDate, form.endDate, form.duration, form.type, selectedNumbersSet, existingCampaigns])
+
+  const redWarnings = useMemo(() => overloadWarnings.filter((w) => w.level === "red"), [overloadWarnings])
+  const orangeWarnings = useMemo(() => overloadWarnings.filter((w) => w.level === "orange"), [overloadWarnings])
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof FormState, string>> = {}
@@ -264,7 +278,11 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     if (!form.duration) errs.duration = "Выберите длительность"
     if (!form.format) errs.format = "Выберите формат"
     if (!form.type) errs.type = "Выберите тип"
-    if (!form.shoppingCenterNumbers.trim()) errs.shoppingCenterNumbers = "Укажите номера ТК через запятую"
+    if (parsedTk.unknownNumbers.length > 0) {
+      errs.shoppingCenterNumbers = `ТК №${parsedTk.unknownNumbers.join(", ")} к нам не относятся`
+    } else if (selectedNumbersSet.size === 0) {
+      errs.shoppingCenterNumbers = "Укажите номера ТК через запятую"
+    }
 
     setErrors(errs)
     return Object.keys(errs).length === 0
@@ -274,10 +292,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     if (!validate()) return
     setLoading(true)
     try {
-      const scNumbers = form.shoppingCenterNumbers
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
+      const scNumbers = Array.from(selectedNumbersSet)
 
       const body = {
         name: form.name.trim(),
@@ -343,7 +358,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
         </DialogHeader>
 
         <div className="grid gap-3.5 py-2">
-          {/* 1. Название */}
           <div className="grid gap-1.5">
             <Label>Название <span className="text-destructive">*</span></Label>
             <Input
@@ -355,7 +369,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
-          {/* 2. Дата старта и 3. Дата окончания */}
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>Дата старта <span className="text-destructive">*</span></Label>
@@ -415,7 +428,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             </div>
           </div>
 
-          {/* 4. Заказчик */}
           <div className="grid gap-1.5">
             <Label>Заказчик <span className="text-destructive">*</span></Label>
             <Input
@@ -427,7 +439,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             {errors.client && <p className="text-xs text-destructive">{errors.client}</p>}
           </div>
 
-          {/* 5. Длительность, 6. Формат, 7. Тип */}
           <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label>Длительность <span className="text-destructive">*</span></Label>
@@ -481,7 +492,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             </div>
           </div>
 
-          {/* 8. Список ТК с динамическими счетчиками 95 / 81 / 176 */}
           <div className="grid gap-1.5">
             <div className="flex flex-wrap items-center justify-between gap-1">
               <Label>
@@ -526,8 +536,32 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
               placeholder="Например: 2, 3, 15, 104"
               value={form.shoppingCenterNumbers}
               onChange={(e) => set("shoppingCenterNumbers", e.target.value)}
-              className={cn(errors.shoppingCenterNumbers && "border-destructive")}
+              className={cn(
+                (errors.shoppingCenterNumbers || parsedTk.unknownNumbers.length > 0) &&
+                  "border-destructive"
+              )}
             />
+
+            {parsedTk.unknownNumbers.length > 0 && (
+              <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-start gap-1.5">
+                  <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+                  <div>
+                    <strong>Эти ТК к нам не относятся (отсутствуют в базе данных):</strong>{" "}
+                    №{parsedTk.unknownNumbers.join(", №")}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs shrink-0"
+                  onClick={removeUnknownTks}
+                >
+                  Удалить лишние ТК
+                </Button>
+              </div>
+            )}
 
             <div className="flex items-center justify-between">
               <p className="text-[11px] text-muted-foreground">
@@ -553,7 +587,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             {showTkPicker && (
               <div className="border rounded-md p-2.5 bg-muted/20 space-y-2">
                 <div className="text-[11px] font-medium text-muted-foreground">
-                  Быстрый выбор по городам (клик добавляет/убирает город):
+                  Быстрый выбор по городам:
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {CITIES.map((city) => (
@@ -602,19 +636,36 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             )}
           </div>
 
-          {overloadWarnings.length > 0 && (
-            <div className="p-2.5 rounded-md border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
+          {redWarnings.length > 0 && (
+            <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
               <div className="font-bold flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Внимание: превышение квоты (180с / 125с платно / 55с беспл.) в {overloadWarnings.length} ТК!
+                Красное предупреждение в {redWarnings.length} ТК!
               </div>
               <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
-                {overloadWarnings.map((w) => (
+                {redWarnings.map((w) => (
                   <div key={w.tkNumber}>
-                    • <strong>ТК №{w.tkNumber}</strong> ({w.city}) на {w.peakDate}: Суммарно{" "}
+                    • <strong>ТК №{w.tkNumber}</strong> ({w.city}) на {w.peakDate}: {w.reason} (Всего{" "}
                     <strong>{w.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
-                    <strong>{w.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл.{" "}
-                    <strong>{w.freeSec}/{TK_QUOTAS.FREE_MAX}с</strong>
+                    <strong>{w.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл. <strong>{w.freeSec}с</strong>)
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {orangeWarnings.length > 0 && (
+            <div className="p-2.5 rounded-md border border-orange-500/50 bg-orange-500/15 text-orange-800 dark:text-orange-300 text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-orange-600" />
+                Оранжевое предупреждение в {orangeWarnings.length} ТК (остаток платного 10–20 сек)!
+              </div>
+              <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
+                {orangeWarnings.map((w) => (
+                  <div key={w.tkNumber}>
+                    • <strong>ТК №{w.tkNumber}</strong> ({w.city}) на {w.peakDate}: {w.reason} (Всего{" "}
+                    <strong>{w.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
+                    <strong>{w.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл. <strong>{w.freeSec}с</strong>)
                   </div>
                 ))}
               </div>
