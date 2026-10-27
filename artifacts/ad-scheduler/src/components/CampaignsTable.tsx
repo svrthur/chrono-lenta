@@ -12,15 +12,17 @@ import {
   BookmarkCheck,
   ArrowRightCircle,
   Trash2,
+  ShieldCheck,
+  AlertTriangle,
 } from "lucide-react"
 import EditCampaignDialog from "./EditCampaignDialog"
 import { getApiUrl } from "@/lib/api"
 import { FORMAT_OPTIONS, CampaignInitialData } from "./AddCampaignDialog"
-import { MASTER_TK_LIST } from "@/lib/constants"
+import { MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { BookingRow } from "@/pages/RebuildAdmin"
+import { BookingRow, evaluateBookingsQueue } from "@/pages/RebuildAdmin"
 
 type Campaign = {
   id: number
@@ -92,6 +94,11 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
   const periodStartIso = format(periodStart, "yyyy-MM-dd")
   const periodEndIso = format(periodEnd, "yyyy-MM-dd")
+
+  const evaluatedBookings = useMemo(
+    () => evaluateBookingsQueue(bookings, rows),
+    [bookings, rows]
+  )
 
   const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectAll = () => {
@@ -197,6 +204,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     })
   }, [rows, dateIso, in3DaysIso])
 
+  // Подсчет опубликованных роликов (РК) за выбранный период (отдельно для ГМ и отдельно для СМ)
   const periodPublishedStats = useMemo(() => {
     const start = periodStartIso <= periodEndIso ? periodStartIso : periodEndIso
     const end = periodStartIso <= periodEndIso ? periodEndIso : periodStartIso
@@ -372,12 +380,12 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       </div>
 
-      {/* Быстрый блок очереди бронирования от коллег (если есть активные брони) */}
-      {bookings.length > 0 && (
+      {/* Очередь бронирования от коллег с расчетом приоритета и конфликтов квот */}
+      {evaluatedBookings.length > 0 && (
         <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
           <div className="text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
             <BookmarkCheck className="w-4 h-4" />
-            Очередь бронирования от коллег ({bookings.length}):
+            Очередь бронирования от коллег ({evaluatedBookings.length}):
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse bg-background rounded border">
@@ -389,62 +397,77 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
                   <th className="p-2 text-left">Формат</th>
                   <th className="p-2 text-left">Тип</th>
                   <th className="p-2 text-left">Хрон.</th>
+                  <th className="p-2 text-left">Статус квоты (FIFO)</th>
                   <th className="p-2 text-left">Список ТК</th>
                   <th className="p-2 text-left">Действия</th>
                 </tr>
               </thead>
               <tbody>
-                {bookings.map((b, idx) => {
-                  const isPaid =
-                    b.payerType.toLowerCase().includes("плат") &&
-                    !b.payerType.toLowerCase().includes("бес")
-                  return (
-                    <tr key={b.id} className="border-b hover:bg-muted/20">
-                      <td className="p-2 font-bold text-amber-700 dark:text-amber-400">№{idx + 1}</td>
-                      <td className="p-2 font-semibold">{b.surname}</td>
-                      <td className="p-2">{b.startDate} — {b.endDate}</td>
-                      <td className="p-2">{b.format}</td>
-                      <td className="p-2">{b.payerType}</td>
-                      <td className="p-2 font-mono font-bold">{b.duration} сек</td>
-                      <td className="p-2 max-w-[240px] truncate" title={b.tkNumbersRaw}>
-                        {b.shoppingCenterNumbers.length} ТК ({b.tkNumbersRaw})
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-2">
-                          {onDuplicate && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onDuplicate({
-                                  name: `Бронь: ${b.surname}`,
-                                  startDate: b.startDate,
-                                  endDate: b.endDate,
-                                  client: b.surname,
-                                  duration: b.duration,
-                                  format: b.format,
-                                  type: isPaid ? "Платник" : "Не платник",
-                                  shoppingCenterNumbers: b.tkNumbersRaw,
-                                })
-                              }
-                              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline"
-                            >
-                              <ArrowRightCircle className="w-3.5 h-3.5" />
-                              В эфир (Создать РК)
-                            </button>
-                          )}
+                {evaluatedBookings.map((b) => (
+                  <tr key={b.id} className="border-b hover:bg-muted/20">
+                    <td className="p-2 font-bold text-amber-700 dark:text-amber-400">№{b._rank}</td>
+                    <td className="p-2 font-semibold">{b.surname}</td>
+                    <td className="p-2">{b.startDate} — {b.endDate}</td>
+                    <td className="p-2">{b.format}</td>
+                    <td className="p-2">{b.payerType}</td>
+                    <td className="p-2 font-mono font-bold">{b.duration} сек</td>
+                    <td className="p-2">
+                      {!b._hasConflict ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-semibold text-[11px]">
+                          <ShieldCheck className="w-3 h-3" /> В квоте
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white font-bold text-[11px]"
+                          title={b._conflicts
+                            .map(
+                              (c) =>
+                                `ТК №${c.tkNumber} (${c.peakDate}): ${c.totalSec}/${TK_QUOTAS.TOTAL_MAX}с`
+                            )
+                            .join("; ")}
+                        >
+                          <AlertTriangle className="w-3 h-3" /> Перегруз в {b._conflicts.length} ТК
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-2 max-w-[220px] truncate" title={b.tkNumbersRaw}>
+                      {b.shoppingCenterNumbers.length} ТК ({b.tkNumbersRaw})
+                    </td>
+                    <td className="p-2">
+                      <div className="flex items-center gap-2">
+                        {onDuplicate && (
                           <button
                             type="button"
-                            onClick={() => handleDeleteBooking(b.id)}
-                            className="inline-flex items-center gap-0.5 text-xs text-red-600 hover:underline"
+                            onClick={() =>
+                              onDuplicate({
+                                name: `Бронь: ${b.surname}`,
+                                startDate: b.startDate,
+                                endDate: b.endDate,
+                                client: b.surname,
+                                duration: b.duration,
+                                format: b.format,
+                                type: b._isPaid ? "Платник" : "Не платник",
+                                shoppingCenterNumbers: b.tkNumbersRaw,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline"
                           >
-                            <Trash2 className="w-3 h-3" />
-                            Удалить
+                            <ArrowRightCircle className="w-3.5 h-3.5" />
+                            В эфир (Создать РК)
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBooking(b.id)}
+                          className="inline-flex items-center gap-0.5 text-xs text-red-600 hover:underline"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Удалить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
