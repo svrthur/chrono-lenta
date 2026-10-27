@@ -7,6 +7,7 @@ import { RebuildAdmin } from "@/pages/RebuildAdmin"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MonitorPlay, Settings, Lock, Unlock, KeyRound } from "lucide-react"
+import { MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 
 const queryClient = new QueryClient()
 
@@ -79,7 +80,7 @@ export function App() {
             <div className="flex items-center gap-3">
               <span className="text-base font-bold tracking-tight">Chrono Lenta</span>
               <span className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                173 ТК • Квота 180с (125с / 55с)
+                {MASTER_TK_LIST.length} ТК • Квота {TK_QUOTAS.TOTAL_MAX}с ({TK_QUOTAS.PAID_MAX}с / {TK_QUOTAS.FREE_MAX}с)
               </span>
             </div>
 
