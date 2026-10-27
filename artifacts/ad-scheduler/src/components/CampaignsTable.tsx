@@ -2,7 +2,17 @@ import React, { useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { format, addDays, subDays, startOfMonth, endOfMonth } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, Download, Copy, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
+import {
+  CalendarIcon,
+  Download,
+  Copy,
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  BookmarkCheck,
+  ArrowRightCircle,
+  Trash2,
+} from "lucide-react"
 import EditCampaignDialog from "./EditCampaignDialog"
 import { getApiUrl } from "@/lib/api"
 import { FORMAT_OPTIONS, CampaignInitialData } from "./AddCampaignDialog"
@@ -10,6 +20,7 @@ import { MASTER_TK_LIST } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
+import { BookingRow } from "@/pages/RebuildAdmin"
 
 type Campaign = {
   id: number
@@ -42,6 +53,12 @@ async function fetchCampaigns(): Promise<Campaign[]> {
   return res.json()
 }
 
+async function fetchBookings(): Promise<BookingRow[]> {
+  const res = await fetch(getApiUrl("/api/bookings"))
+  if (!res.ok) return []
+  return res.json()
+}
+
 interface CampaignsTableProps {
   onDuplicate?: (data: CampaignInitialData) => void
 }
@@ -51,6 +68,11 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const { data: rows = [], isLoading, isError, error, refetch } = useQuery<Campaign[]>({
     queryKey: ["campaigns"],
     queryFn: fetchCampaigns,
+  })
+
+  const { data: bookings = [] } = useQuery<BookingRow[]>({
+    queryKey: ["bookings"],
+    queryFn: fetchBookings,
   })
 
   const [selected, setSelected] = useState<Record<number, boolean>>({})
@@ -111,6 +133,16 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     }
   }
 
+  const handleDeleteBooking = async (id: number) => {
+    if (!window.confirm("Удалить эту бронь из очереди?")) return
+    try {
+      await fetch(getApiUrl(`/api/bookings/${id}`), { method: "DELETE" })
+      queryClient.invalidateQueries({ queryKey: ["bookings"] })
+    } catch (err) {
+      window.alert(String(err))
+    }
+  }
+
   const clients = Array.from(new Set(rows.map((r) => r.client))).filter(Boolean)
 
   const normalizedRows = useMemo(() => {
@@ -165,7 +197,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     })
   }, [rows, dateIso, in3DaysIso])
 
-  // Подсчет опубликованных роликов (РК) за выбранный период (отдельно для ГМ и отдельно для СМ)
   const periodPublishedStats = useMemo(() => {
     const start = periodStartIso <= periodEndIso ? periodStartIso : periodEndIso
     const end = periodStartIso <= periodEndIso ? periodEndIso : periodStartIso
@@ -264,7 +295,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         }}
       />
 
-      {/* Блок подсчета опубликованных роликов и РК за выбранный период (отдельно для ГМ и СМ) */}
+      {/* Блок подсчета опубликованных роликов и РК за выбранный период (только для Админа) */}
       <div className="bg-muted/20 border rounded-md px-3 py-2.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="font-semibold flex items-center gap-1.5 text-foreground">
@@ -340,6 +371,85 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
           </div>
         </div>
       </div>
+
+      {/* Быстрый блок очереди бронирования от коллег (если есть активные брони) */}
+      {bookings.length > 0 && (
+        <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
+          <div className="text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+            <BookmarkCheck className="w-4 h-4" />
+            Очередь бронирования от коллег ({bookings.length}):
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse bg-background rounded border">
+              <thead className="bg-muted/40 border-b text-[11px] text-muted-foreground">
+                <tr>
+                  <th className="p-2 text-left">Очередь</th>
+                  <th className="p-2 text-left">Фамилия</th>
+                  <th className="p-2 text-left">Даты показа</th>
+                  <th className="p-2 text-left">Формат</th>
+                  <th className="p-2 text-left">Тип</th>
+                  <th className="p-2 text-left">Хрон.</th>
+                  <th className="p-2 text-left">Список ТК</th>
+                  <th className="p-2 text-left">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bookings.map((b, idx) => {
+                  const isPaid =
+                    b.payerType.toLowerCase().includes("плат") &&
+                    !b.payerType.toLowerCase().includes("бес")
+                  return (
+                    <tr key={b.id} className="border-b hover:bg-muted/20">
+                      <td className="p-2 font-bold text-amber-700 dark:text-amber-400">№{idx + 1}</td>
+                      <td className="p-2 font-semibold">{b.surname}</td>
+                      <td className="p-2">{b.startDate} — {b.endDate}</td>
+                      <td className="p-2">{b.format}</td>
+                      <td className="p-2">{b.payerType}</td>
+                      <td className="p-2 font-mono font-bold">{b.duration} сек</td>
+                      <td className="p-2 max-w-[240px] truncate" title={b.tkNumbersRaw}>
+                        {b.shoppingCenterNumbers.length} ТК ({b.tkNumbersRaw})
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-2">
+                          {onDuplicate && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDuplicate({
+                                  name: `Бронь: ${b.surname}`,
+                                  startDate: b.startDate,
+                                  endDate: b.endDate,
+                                  client: b.surname,
+                                  duration: b.duration,
+                                  format: b.format,
+                                  type: isPaid ? "Платник" : "Не платник",
+                                  shoppingCenterNumbers: b.tkNumbersRaw,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline"
+                            >
+                              <ArrowRightCircle className="w-3.5 h-3.5" />
+                              В эфир (Создать РК)
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBooking(b.id)}
+                            className="inline-flex items-center gap-0.5 text-xs text-red-600 hover:underline"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Удалить
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Фильтры реестра кампаний */}
       <div className="flex flex-wrap items-center justify-between gap-4">
