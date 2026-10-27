@@ -95,7 +95,6 @@ export function Calendar({
 
   return (
     <div className={cn("p-3 w-[284px] select-none bg-popover text-popover-foreground", className)}>
-      {/* Верхняя панель с удобными стрелками по краям и выбором месяца/года */}
       <div className="flex items-center justify-between gap-1 pb-2.5 mb-2 border-b">
         <button
           type="button"
@@ -146,7 +145,6 @@ export function Calendar({
         </button>
       </div>
 
-      {/* Дни недели */}
       <div className="grid grid-cols-7 gap-1 mb-1 text-center">
         {WEEKDAYS.map((dayName, i) => (
           <div
@@ -161,7 +159,6 @@ export function Calendar({
         ))}
       </div>
 
-      {/* Сетка чисел месяца */}
       <div className="grid grid-cols-7 gap-1">
         {days.map((day) => {
           const isSelected = selected ? isSameDay(day, selected) : false
@@ -191,7 +188,6 @@ export function Calendar({
         })}
       </div>
 
-      {/* Нижняя панель быстрого перехода на сегодня */}
       <div className="mt-2.5 pt-2 border-t flex items-center justify-between">
         <button
           type="button"
