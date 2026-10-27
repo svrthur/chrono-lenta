@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ru } from "date-fns/locale"
-import { CalendarIcon, CheckIcon, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react"
+import { CalendarIcon, CheckIcon, AlertTriangle, ChevronDown, ChevronUp, XCircle } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 import { useToast } from "@/hooks/use-toast"
 import { getApiUrl } from "@/lib/api"
-import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
+import {
+  CITIES,
+  MASTER_TK_LIST,
+  TK_QUOTAS,
+  QuotaAlertLevel,
+  evaluateTkQuota,
+  parseAndValidateTkNumbers,
+} from "@/lib/constants"
 import { DURATION_OPTIONS, FORMAT_OPTIONS, TYPE_OPTIONS } from "./AddCampaignDialog"
 
 const TOTAL_TK_COUNT = MASTER_TK_LIST.length
@@ -92,19 +99,19 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
 
   const set = (key: string, value: any) => setForm((prev) => ({ ...prev, [key]: value }))
 
-  const selectedNumbersSet = useMemo(() => {
-    return new Set(
-      form.shoppingCenterNumbers
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    )
-  }, [form.shoppingCenterNumbers])
+  const parsedTk = useMemo(
+    () => parseAndValidateTkNumbers(form.shoppingCenterNumbers),
+    [form.shoppingCenterNumbers]
+  )
+  const selectedNumbersSet = useMemo(() => new Set(parsedTk.validNumbers), [parsedTk.validNumbers])
+
+  const removeUnknownTks = () => {
+    set("shoppingCenterNumbers", parsedTk.validNumbers.join(", "))
+  }
 
   const updateNumbersFromSet = (nextSet: Set<string>) => {
     const ordered = MASTER_TK_LIST.filter((t) => nextSet.has(t.number)).map((t) => t.number)
-    const custom = Array.from(nextSet).filter((n) => !MASTER_TK_LIST.some((t) => t.number === n))
-    set("shoppingCenterNumbers", [...ordered, ...custom].join(", "))
+    set("shoppingCenterNumbers", ordered.join(", "))
   }
 
   const fillTkByFormat = (fmt: "ГМ" | "СМ" | "ГМ+СМ") => {
@@ -178,10 +185,14 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
       tkNumber: string
       city: string
       peakDate: string
+      level: "orange" | "red"
+      reason: string
       totalSec: number
       paidSec: number
       freeSec: number
     }[] = []
+
+    const severityRank = (lvl: QuotaAlertLevel) => (lvl === "red" ? 2 : lvl === "orange" ? 1 : 0)
 
     for (const tkNum of Array.from(selectedNumbersSet)) {
       const overlapping = preparedExisting.filter(
@@ -195,9 +206,8 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
         }
       }
 
-      let maxTotal = 0
-      let maxPaid = 0
-      let maxFree = 0
+      let worstLevel: QuotaAlertLevel = "ok"
+      let worstEval = evaluateTkQuota(0, 0)
       let worstDate = startIso
 
       for (const d of Array.from(candidateDates).sort()) {
@@ -209,28 +219,28 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
             else free += c.duration
           }
         }
-        const total = paid + free
-        if (total > maxTotal || paid > maxPaid || free > maxFree) {
-          maxTotal = Math.max(maxTotal, total)
-          maxPaid = Math.max(maxPaid, paid)
-          maxFree = Math.max(maxFree, free)
+        const qEval = evaluateTkQuota(paid, free)
+        if (
+          severityRank(qEval.level) > severityRank(worstLevel) ||
+          (severityRank(qEval.level) === severityRank(worstLevel) && qEval.totalSec > worstEval.totalSec)
+        ) {
+          worstLevel = qEval.level
+          worstEval = qEval
           worstDate = d
         }
       }
 
-      if (
-        maxTotal > TK_QUOTAS.TOTAL_MAX ||
-        maxPaid > TK_QUOTAS.PAID_MAX ||
-        maxFree > TK_QUOTAS.FREE_MAX
-      ) {
+      if (worstLevel === "red" || worstLevel === "orange") {
         const tkInfo = MASTER_TK_LIST.find((t) => t.number === tkNum)
         warnings.push({
           tkNumber: tkNum,
           city: tkInfo?.city || "",
           peakDate: worstDate,
-          totalSec: maxTotal,
-          paidSec: maxPaid,
-          freeSec: maxFree,
+          level: worstLevel,
+          reason: worstEval.reason,
+          totalSec: worstEval.totalSec,
+          paidSec: worstEval.paidSec,
+          freeSec: worstEval.freeSec,
         })
       }
     }
@@ -238,17 +248,24 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
     return warnings
   }, [form.startDate, form.endDate, form.duration, form.type, selectedNumbersSet, existingCampaigns, campaignId])
 
+  const redWarnings = useMemo(() => overloadWarnings.filter((w) => w.level === "red"), [overloadWarnings])
+  const orangeWarnings = useMemo(() => overloadWarnings.filter((w) => w.level === "orange"), [overloadWarnings])
+
   const handleSubmit = async () => {
     if (!form.name.trim()) return toast({ title: "Введите название", variant: "destructive" })
     if (!form.startDate || !form.endDate) return toast({ title: "Выберите даты старта и окончания", variant: "destructive" })
     if (form.startDate > form.endDate) return toast({ title: "Дата окончания раньше даты старта", variant: "destructive" })
+    if (parsedTk.unknownNumbers.length > 0) {
+      return toast({
+        title: "Обнаружены чужие ТК",
+        description: `ТК №${parsedTk.unknownNumbers.join(", ")} к нам не относятся. Нажмите «Удалить лишние ТК».`,
+        variant: "destructive",
+      })
+    }
 
     setLoading(true)
     try {
-      const scNumbers = form.shoppingCenterNumbers
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
+      const scNumbers = Array.from(selectedNumbersSet)
 
       const body = {
         name: form.name.trim(),
@@ -458,6 +475,27 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
               onChange={(e) => set("shoppingCenterNumbers", e.target.value)}
             />
 
+            {parsedTk.unknownNumbers.length > 0 && (
+              <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-start gap-1.5">
+                  <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+                  <div>
+                    <strong>Эти ТК к нам не относятся (отсутствуют в базе данных):</strong>{" "}
+                    №{parsedTk.unknownNumbers.join(", №")}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs shrink-0"
+                  onClick={removeUnknownTks}
+                >
+                  Удалить лишние ТК
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <p className="text-[11px] text-muted-foreground">
                 Номера через запятую или выберите города/ТК ниже
@@ -527,19 +565,36 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
             )}
           </div>
 
-          {overloadWarnings.length > 0 && (
-            <div className="p-2.5 rounded-md border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
+          {redWarnings.length > 0 && (
+            <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
               <div className="font-bold flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Внимание: превышение квоты (180с / 125с платно / 55с беспл.) в {overloadWarnings.length} ТК!
+                Красное предупреждение в {redWarnings.length} ТК!
               </div>
               <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
-                {overloadWarnings.map((w) => (
+                {redWarnings.map((w) => (
                   <div key={w.tkNumber}>
-                    • <strong>ТК №{w.tkNumber}</strong> ({w.city}) на {w.peakDate}: Суммарно{" "}
+                    • <strong>ТК №{w.tkNumber}</strong> ({w.city}) на {w.peakDate}: {w.reason} (Всего{" "}
                     <strong>{w.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
-                    <strong>{w.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл.{" "}
-                    <strong>{w.freeSec}/{TK_QUOTAS.FREE_MAX}с</strong>
+                    <strong>{w.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл. <strong>{w.freeSec}с</strong>)
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {orangeWarnings.length > 0 && (
+            <div className="p-2.5 rounded-md border border-orange-500/50 bg-orange-500/15 text-orange-800 dark:text-orange-300 text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-orange-600" />
+                Оранжевое предупреждение в {orangeWarnings.length} ТК (остаток платного 10–20 сек)!
+              </div>
+              <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
+                {orangeWarnings.map((w) => (
+                  <div key={w.tkNumber}>
+                    • <strong>ТК №{w.tkNumber}</strong> ({w.city}) на {w.peakDate}: {w.reason} (Всего{" "}
+                    <strong>{w.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
+                    <strong>{w.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл. <strong>{w.freeSec}с</strong>)
                   </div>
                 ))}
               </div>
