@@ -22,6 +22,10 @@ export const TYPE_OPTIONS = [
   { label: "не платный", value: "Не платник" },
 ] as const
 
+const TOTAL_TK_COUNT = MASTER_TK_LIST.length
+const TOTAL_GM_COUNT = MASTER_TK_LIST.filter((t) => t.format === "ГМ").length
+const TOTAL_SM_COUNT = MASTER_TK_LIST.filter((t) => t.format === "СМ").length
+
 export interface CampaignInitialData {
   name: string
   startDate?: string
@@ -70,7 +74,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
   const [pickerSearch, setPickerSearch] = useState("")
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
-  // Загружаем существующие РК для автоматической проверки перегруза квот (180 / 125 / 55с)
   const { data: existingCampaigns = [] } = useQuery<any[]>({
     queryKey: ["campaigns"],
     queryFn: async () => {
@@ -159,7 +162,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
     updateNumbersFromSet(next)
   }
 
-  // Проверка перегруза квот (180с всего / 125с платно / 55с бесплатно) на выбранный период
   const overloadWarnings = useMemo(() => {
     if (!form.startDate || !form.endDate || !form.duration || !form.type || selectedNumbersSet.size === 0) {
       return []
@@ -222,11 +224,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
           }
         }
         const total = paid + free
-        if (
-          total > maxTotal ||
-          paid > maxPaid ||
-          free > maxFree
-        ) {
+        if (total > maxTotal || paid > maxPaid || free > maxFree) {
           maxTotal = Math.max(maxTotal, total)
           maxPaid = Math.max(maxPaid, paid)
           maxFree = Math.max(maxFree, free)
@@ -381,7 +379,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
                     selected={form.startDate}
                     onSelect={(d) => set("startDate", d)}
                     locale={ru}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -410,7 +407,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
                     selected={form.endDate}
                     onSelect={(d) => set("endDate", d)}
                     locale={ru}
-                    initialFocus
                     disabled={form.startDate ? { before: form.startDate } : undefined}
                   />
                 </PopoverContent>
@@ -485,7 +481,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             </div>
           </div>
 
-          {/* 8. Список ТК + удобный выбор по городам и галочкам */}
+          {/* 8. Список ТК с динамическими счетчиками 95 / 81 / 176 */}
           <div className="grid gap-1.5">
             <div className="flex flex-wrap items-center justify-between gap-1">
               <Label>
@@ -497,7 +493,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
                   onClick={() => fillTkByFormat("ГМ")}
                   className="text-primary hover:underline font-medium"
                 >
-                  Все ГМ (94)
+                  Все ГМ ({TOTAL_GM_COUNT})
                 </button>
                 <span className="text-muted-foreground">|</span>
                 <button
@@ -505,7 +501,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
                   onClick={() => fillTkByFormat("СМ")}
                   className="text-primary hover:underline font-medium"
                 >
-                  Все СМ (79)
+                  Все СМ ({TOTAL_SM_COUNT})
                 </button>
                 <span className="text-muted-foreground">|</span>
                 <button
@@ -513,7 +509,7 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
                   onClick={() => fillTkByFormat("ГМ+СМ")}
                   className="text-primary hover:underline font-medium"
                 >
-                  ГМ+СМ (173)
+                  ГМ+СМ ({TOTAL_TK_COUNT})
                 </button>
                 <span className="text-muted-foreground">|</span>
                 <button
@@ -606,7 +602,6 @@ export function AddCampaignDialog({ open, onOpenChange, initialData }: Props) {
             )}
           </div>
 
-          {/* Предупреждение о превышении квот (180 / 125 / 55 сек) */}
           {overloadWarnings.length > 0 && (
             <div className="p-2.5 rounded-md border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
               <div className="font-bold flex items-center gap-1.5">
