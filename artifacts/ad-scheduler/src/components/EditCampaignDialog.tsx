@@ -15,6 +15,10 @@ import { getApiUrl } from "@/lib/api"
 import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 import { DURATION_OPTIONS, FORMAT_OPTIONS, TYPE_OPTIONS } from "./AddCampaignDialog"
 
+const TOTAL_TK_COUNT = MASTER_TK_LIST.length
+const TOTAL_GM_COUNT = MASTER_TK_LIST.filter((t) => t.format === "ГМ").length
+const TOTAL_SM_COUNT = MASTER_TK_LIST.filter((t) => t.format === "СМ").length
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -142,7 +146,6 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
     updateNumbersFromSet(next)
   }
 
-  // Проверка перегруза квот (исключая саму редактируемую РК)
   const overloadWarnings = useMemo(() => {
     if (!form.startDate || !form.endDate || !form.duration || !form.type || selectedNumbersSet.size === 0) {
       return []
@@ -329,7 +332,6 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
                     selected={form.startDate}
                     onSelect={(d) => set("startDate", d)}
                     locale={ru}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -350,7 +352,6 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
                     selected={form.endDate}
                     onSelect={(d) => set("endDate", d)}
                     locale={ru}
-                    initialFocus
                     disabled={form.startDate ? { before: form.startDate } : undefined}
                   />
                 </PopoverContent>
@@ -422,7 +423,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
                   onClick={() => fillTkByFormat("ГМ")}
                   className="text-primary hover:underline font-medium"
                 >
-                  Все ГМ (94)
+                  Все ГМ ({TOTAL_GM_COUNT})
                 </button>
                 <span className="text-muted-foreground">|</span>
                 <button
@@ -430,7 +431,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
                   onClick={() => fillTkByFormat("СМ")}
                   className="text-primary hover:underline font-medium"
                 >
-                  Все СМ (79)
+                  Все СМ ({TOTAL_SM_COUNT})
                 </button>
                 <span className="text-muted-foreground">|</span>
                 <button
@@ -438,7 +439,7 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
                   onClick={() => fillTkByFormat("ГМ+СМ")}
                   className="text-primary hover:underline font-medium"
                 >
-                  ГМ+СМ (173)
+                  ГМ+СМ ({TOTAL_TK_COUNT})
                 </button>
                 <span className="text-muted-foreground">|</span>
                 <button
