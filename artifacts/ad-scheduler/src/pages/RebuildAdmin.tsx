@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { format, addDays, subDays } from "date-fns"
 import { ru } from "date-fns/locale"
 import {
@@ -14,13 +14,24 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  BookmarkPlus,
+  BookmarkCheck,
+  CheckIcon,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
 } from "lucide-react"
 import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 import { getApiUrl } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
+import { useToast } from "@/hooks/use-toast"
+import { DURATION_OPTIONS, FORMAT_OPTIONS } from "@/components/AddCampaignDialog"
 import { cn } from "@/lib/utils"
 
 type CampaignRow = {
@@ -36,6 +47,19 @@ type CampaignRow = {
   shoppingCenters?: { id: number; number: string; city: string; format: string }[]
 }
 
+export type BookingRow = {
+  id: number
+  surname: string
+  startDate: string
+  endDate: string
+  format: string
+  payerType: string
+  duration: number
+  shoppingCenterNumbers: string[]
+  tkNumbersRaw: string
+  createdAt: string
+}
+
 export type CampaignStatusLabel = "опубликовано" | "запланировано" | "завершён"
 
 const TOTAL_TK_COUNT = MASTER_TK_LIST.length
@@ -48,19 +72,63 @@ async function fetchCampaigns(): Promise<CampaignRow[]> {
   return res.json()
 }
 
+async function fetchBookings(): Promise<BookingRow[]> {
+  const res = await fetch(getApiUrl("/api/bookings"))
+  if (!res.ok) return []
+  return res.json()
+}
+
 function formatShortDate(iso: string) {
   if (!iso) return ""
   const parts = iso.split("-")
   return parts.length === 3 ? `${parts[2]}.${parts[1]}` : iso
 }
 
+function formatDateTimeRu(iso: string) {
+  if (!iso) return "—"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
+}
+
 export function RebuildAdmin() {
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+
   const { data: rawCampaigns = [], isLoading } = useQuery<CampaignRow[]>({
     queryKey: ["campaigns"],
     queryFn: fetchCampaigns,
   })
 
-  const [viewMode, setViewMode] = useState<"list" | "matrix">("list")
+  const { data: rawBookings = [] } = useQuery<BookingRow[]>({
+    queryKey: ["bookings"],
+    queryFn: fetchBookings,
+  })
+
+  // Режимы просмотра: "list" (Список ТК), "matrix" (Матрица), "bookings" (Список бронирования)
+  const [viewMode, setViewMode] = useState<"list" | "matrix" | "bookings">("list")
+  const [bookingDialogOpen, setBookingDialogOpen] = useState<boolean>(false)
+
+  // Состояние формы нового бронирования
+  const [bSurname, setBSurname] = useState<string>("")
+  const [bStartDate, setBStartDate] = useState<Date | undefined>(undefined)
+  const [bEndDate, setBEndDate] = useState<Date | undefined>(undefined)
+  const [bFormat, setBFormat] = useState<string>("")
+  const [bPayerType, setBPayerType] = useState<string>("")
+  const [bDuration, setBDuration] = useState<string>("")
+  const [bTkNumbers, setBTkNumbers] = useState<string>("")
+  const [bShowPicker, setBShowPicker] = useState<boolean>(false)
+  const [bPickerSearch, setBPickerSearch] = useState<string>("")
+  const [bSaving, setBSaving] = useState<boolean>(false)
+
+  // Фильтры ТК и РК
   const [tkFormatFilter, setTkFormatFilter] = useState<"ALL" | "ГМ" | "СМ">("ALL")
   const [cityFilter, setCityFilter] = useState<string>("")
   const [searchTk, setSearchTk] = useState<string>("")
@@ -83,6 +151,167 @@ export function RebuildAdmin() {
 
   const dateIso = format(selectedDate, "yyyy-MM-dd")
   const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
+
+  // Сортировка списка бронирования строго по дате внесения (кто первым внёс — тот №1 в списке)
+  const sortedBookings = useMemo(() => {
+    return [...rawBookings].sort((a, b) => {
+      const tA = new Date(a.createdAt).getTime() || 0
+      const tB = new Date(b.createdAt).getTime() || 0
+      if (tA !== tB) return tA - tB
+      return a.id - b.id
+    })
+  }, [rawBookings])
+
+  // Логика конструктора списка ТК в окне бронирования
+  const bSelectedSet = useMemo(() => {
+    return new Set(
+      bTkNumbers
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+  }, [bTkNumbers])
+
+  const updateBTkFromSet = (nextSet: Set<string>) => {
+    const ordered = MASTER_TK_LIST.filter((t) => nextSet.has(t.number)).map((t) => t.number)
+    const custom = Array.from(nextSet).filter((n) => !MASTER_TK_LIST.some((t) => t.number === n))
+    setBTkNumbers([...ordered, ...custom].join(", "))
+  }
+
+  const fillBTkByFormat = (fmt: "ГМ" | "СМ" | "ГМ+СМ") => {
+    if (fmt === "ГМ+СМ") {
+      setBTkNumbers(MASTER_TK_LIST.map((t) => t.number).join(", "))
+      return
+    }
+    setBTkNumbers(MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number).join(", "))
+  }
+
+  const handleBFormatChange = (v: string) => {
+    setBFormat(v)
+    if (v === "ГМ") fillBTkByFormat("ГМ")
+    else if (v === "СМ") fillBTkByFormat("СМ")
+    else if (v === "ГМ+СМ") fillBTkByFormat("ГМ+СМ")
+  }
+
+  const toggleBCityTks = (city: string) => {
+    const next = new Set(bSelectedSet)
+    const cityTks = MASTER_TK_LIST.filter((t) => {
+      if (t.city !== city) return false
+      if (bFormat === "ГМ" || bFormat === "част.ГМ") return t.format === "ГМ"
+      if (bFormat === "СМ" || bFormat === "част.СМ") return t.format === "СМ"
+      return true
+    })
+    const allSelected = cityTks.length > 0 && cityTks.every((t) => next.has(t.number))
+    for (const tk of cityTks) {
+      if (allSelected) next.delete(tk.number)
+      else next.add(tk.number)
+    }
+    updateBTkFromSet(next)
+  }
+
+  const toggleBSingleTk = (num: string) => {
+    const next = new Set(bSelectedSet)
+    if (next.has(num)) next.delete(num)
+    else next.add(num)
+    updateBTkFromSet(next)
+  }
+
+  const bFilteredMasterList = useMemo(() => {
+    return MASTER_TK_LIST.filter((tk) => {
+      if (bFormat === "ГМ" || bFormat === "част.ГМ") {
+        if (tk.format !== "ГМ") return false
+      } else if (bFormat === "СМ" || bFormat === "част.СМ") {
+        if (tk.format !== "СМ") return false
+      }
+      if (bPickerSearch.trim()) {
+        const q = bPickerSearch.trim().toLowerCase()
+        return (
+          tk.number.toLowerCase().includes(q) ||
+          tk.city.toLowerCase().includes(q) ||
+          tk.address.toLowerCase().includes(q)
+        )
+      }
+      return true
+    })
+  }, [bFormat, bPickerSearch])
+
+  const resetBookingForm = () => {
+    setBSurname("")
+    setBStartDate(undefined)
+    setBEndDate(undefined)
+    setBFormat("")
+    setBPayerType("")
+    setBDuration("")
+    setBTkNumbers("")
+    setBShowPicker(false)
+    setBPickerSearch("")
+  }
+
+  const handleSaveBooking = async () => {
+    if (!bSurname.trim()) {
+      return toast({ title: "Укажите фамилию", variant: "destructive" })
+    }
+    if (!bStartDate || !bEndDate) {
+      return toast({ title: "Выберите даты показа", variant: "destructive" })
+    }
+    if (bStartDate > bEndDate) {
+      return toast({ title: "Дата окончания раньше даты старта", variant: "destructive" })
+    }
+    if (!bFormat) {
+      return toast({ title: "Выберите формат", variant: "destructive" })
+    }
+    if (!bPayerType) {
+      return toast({ title: "Выберите тип (платная / бесплатная)", variant: "destructive" })
+    }
+    if (!bDuration) {
+      return toast({ title: "Выберите хронометраж", variant: "destructive" })
+    }
+    if (bSelectedSet.size === 0) {
+      return toast({ title: "Укажите список ТК", variant: "destructive" })
+    }
+
+    setBSaving(true)
+    try {
+      const body = {
+        surname: bSurname.trim(),
+        startDate: format(bStartDate, "yyyy-MM-dd"),
+        endDate: format(bEndDate, "yyyy-MM-dd"),
+        format: bFormat,
+        payerType: bPayerType,
+        duration: Number(bDuration),
+        shoppingCenterNumbers: Array.from(bSelectedSet),
+      }
+      const res = await fetch(getApiUrl("/api/bookings"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Ошибка ${res.status}`)
+      }
+      toast({ title: "Бронь добавлена в список", variant: "success" })
+      queryClient.invalidateQueries({ queryKey: ["bookings"] })
+      resetBookingForm()
+      setBookingDialogOpen(false)
+      setViewMode("bookings")
+    } catch (err: any) {
+      toast({ title: "Ошибка", description: err.message, variant: "destructive" })
+    } finally {
+      setBSaving(false)
+    }
+  }
+
+  const handleDeleteBooking = async (id: number, surname: string) => {
+    if (!window.confirm(`Удалить бронь (${surname}) из списка?`)) return
+    try {
+      const res = await fetch(getApiUrl(`/api/bookings/${id}`), { method: "DELETE" })
+      if (!res.ok) throw new Error("Не удалось удалить бронь")
+      queryClient.invalidateQueries({ queryKey: ["bookings"] })
+    } catch (err: any) {
+      toast({ title: "Ошибка", description: String(err.message || err), variant: "destructive" })
+    }
+  }
 
   const enrichedCampaigns = useMemo(() => {
     return rawCampaigns.map((c) => {
@@ -360,6 +589,274 @@ export function RebuildAdmin() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col pb-10">
+      {/* Модальное окно создания Бронирования */}
+      <Dialog open={bookingDialogOpen} onOpenChange={setBookingDialogOpen}>
+        <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Бронирование эфирного времени</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-3.5 py-2">
+            {/* 1. Фамилия */}
+            <div className="grid gap-1.5">
+              <Label>
+                Фамилия <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                placeholder="Введите вашу фамилию"
+                value={bSurname}
+                onChange={(e) => setBSurname(e.target.value)}
+              />
+            </div>
+
+            {/* 2. Даты показа */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label>
+                  Дата старта показа <span className="text-destructive">*</span>
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "justify-start text-left font-normal",
+                        !bStartDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {bStartDate ? format(bStartDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={bStartDate}
+                      onSelect={(d) => setBStartDate(d)}
+                      locale={ru}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>
+                  Дата окончания показа <span className="text-destructive">*</span>
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "justify-start text-left font-normal",
+                        !bEndDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {bEndDate ? format(bEndDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={bEndDate}
+                      onSelect={(d) => setBEndDate(d)}
+                      locale={ru}
+                      disabled={bStartDate ? { before: bStartDate } : undefined}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* 3. Формат, 4. Платная/Бесплатная, 5. Хронометраж */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1.5">
+                <Label>
+                  Формат <span className="text-destructive">*</span>
+                </Label>
+                <Select value={bFormat} onValueChange={handleBFormatChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выбрать" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FORMAT_OPTIONS.map((fmt) => (
+                      <SelectItem key={fmt} value={fmt}>
+                        {fmt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>
+                  Тип <span className="text-destructive">*</span>
+                </Label>
+                <Select value={bPayerType} onValueChange={setBPayerType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выбрать" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="платная">платная</SelectItem>
+                    <SelectItem value="бесплатная">бесплатная</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>
+                  Хронометраж <span className="text-destructive">*</span>
+                </Label>
+                <Select value={bDuration} onValueChange={setBDuration}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выбрать" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DURATION_OPTIONS.map((sec) => (
+                      <SelectItem key={sec} value={String(sec)}>
+                        {sec} сек
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* 6. Окно для списка ТК */}
+            <div className="grid gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <Label>
+                  Список ТК ({bSelectedSet.size} выбр.) <span className="text-destructive">*</span>
+                </Label>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => fillBTkByFormat("ГМ")}
+                    className="text-primary hover:underline font-medium"
+                  >
+                    Все ГМ ({TOTAL_GM_COUNT})
+                  </button>
+                  <span className="text-muted-foreground">|</span>
+                  <button
+                    type="button"
+                    onClick={() => fillBTkByFormat("СМ")}
+                    className="text-primary hover:underline font-medium"
+                  >
+                    Все СМ ({TOTAL_SM_COUNT})
+                  </button>
+                  <span className="text-muted-foreground">|</span>
+                  <button
+                    type="button"
+                    onClick={() => fillBTkByFormat("ГМ+СМ")}
+                    className="text-primary hover:underline font-medium"
+                  >
+                    ГМ+СМ ({TOTAL_TK_COUNT})
+                  </button>
+                  <span className="text-muted-foreground">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setBTkNumbers("")}
+                    className="text-muted-foreground hover:underline"
+                  >
+                    Очистить
+                  </button>
+                </div>
+              </div>
+
+              <Input
+                placeholder="Укажите номера ТК через запятую (например: 2, 3, 15)"
+                value={bTkNumbers}
+                onChange={(e) => setBTkNumbers(e.target.value)}
+              />
+
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-muted-foreground">
+                  При выборе ГМ, СМ или ГМ+СМ список ТК подставляется автоматически
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setBShowPicker((v) => !v)}
+                  className="text-xs text-primary font-medium flex items-center gap-1 hover:underline"
+                >
+                  {bShowPicker ? (
+                    <>
+                      Скрыть список ТК <ChevronUp className="w-3.5 h-3.5" />
+                    </>
+                  ) : (
+                    <>
+                      Выбрать по городам / адресам <ChevronDown className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {bShowPicker && (
+                <div className="border rounded-md p-2.5 bg-muted/20 space-y-2">
+                  <div className="text-[11px] font-medium text-muted-foreground">
+                    Быстрый выбор по городам:
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {CITIES.map((city) => (
+                      <button
+                        key={city}
+                        type="button"
+                        onClick={() => toggleBCityTks(city)}
+                        className="px-2 py-0.5 text-[11px] rounded border bg-background hover:bg-primary/10 transition-colors"
+                      >
+                        + {city}
+                      </button>
+                    ))}
+                  </div>
+
+                  <Input
+                    placeholder="Поиск ТК по номеру, городу или адресу..."
+                    value={bPickerSearch}
+                    onChange={(e) => setBPickerSearch(e.target.value)}
+                    className="h-7 text-xs"
+                  />
+
+                  <div className="max-h-36 overflow-y-auto border rounded bg-background p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {bFilteredMasterList.map((tk) => (
+                      <label
+                        key={tk.number}
+                        className="flex items-center gap-1.5 text-[11px] px-1.5 py-1 rounded hover:bg-muted/50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={bSelectedSet.has(tk.number)}
+                          onChange={() => toggleBSingleTk(tk.number)}
+                        />
+                        <span className="font-bold">№{tk.number}</span>
+                        <span className="text-[10px] px-1 rounded bg-muted">{tk.format}</span>
+                        <span className="truncate text-muted-foreground" title={`${tk.city}, ${tk.address}`}>
+                          {tk.city}, {tk.address}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBookingDialogOpen(false)}
+              disabled={bSaving}
+            >
+              Отмена
+            </Button>
+            <Button onClick={handleSaveBooking} disabled={bSaving}>
+              <CheckIcon className="w-4 h-4 mr-2" />
+              {bSaving ? "Сохранение..." : "Забронировать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Верхняя панель фильтров */}
       <div className="bg-card border-b shadow-2xs sticky top-[53px] z-40">
         <div className="max-w-[1920px] mx-auto px-3 py-2 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -398,7 +895,6 @@ export function RebuildAdmin() {
                 ))}
               </select>
 
-              {/* Выбор даты с удобными стрелками перелистывания дней */}
               <div className="inline-flex items-center gap-0.5">
                 <Button
                   variant="outline"
@@ -509,15 +1005,15 @@ export function RebuildAdmin() {
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            {/* Правый блок: Кнопка Бронирования + Переключатель режимов (Список ТК / Матрица / Список бронирования) */}
+            <div className="flex flex-wrap items-center gap-1.5">
               <Button
-                variant="outline"
                 size="sm"
-                className="h-7 px-2.5 text-xs gap-1"
-                onClick={handleExportTkCsv}
+                className="h-7 px-3 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+                onClick={() => setBookingDialogOpen(true)}
               >
-                <Download className="w-3.5 h-3.5" />
-                Скачать Excel
+                <BookmarkPlus className="w-3.5 h-3.5" />
+                + Бронирование
               </Button>
 
               <div className="inline-flex rounded border bg-muted/40 p-0.5">
@@ -545,7 +1041,29 @@ export function RebuildAdmin() {
                   <LayoutGrid className="w-3.5 h-3.5" />
                   Матрица
                 </button>
+                <button
+                  onClick={() => setViewMode("bookings")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded transition-colors",
+                    viewMode === "bookings"
+                      ? "bg-amber-600 text-white shadow-2xs"
+                      : "text-amber-700 dark:text-amber-400 hover:text-foreground"
+                  )}
+                >
+                  <BookmarkCheck className="w-3.5 h-3.5" />
+                  Список бронирования ({sortedBookings.length})
+                </button>
               </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs gap-1"
+                onClick={handleExportTkCsv}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Excel
+              </Button>
 
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetFilters}>
                 <RotateCcw className="w-3.5 h-3.5 mr-1" />
@@ -665,6 +1183,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
+      {/* Сводка */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
@@ -691,13 +1210,17 @@ export function RebuildAdmin() {
 
           <div className="bg-card border rounded px-3 py-1.5">
             <div className="text-[11px] text-muted-foreground">
-              Запланировано (после {format(selectedDate, "dd.MM")})
+              Запланировано / В брони
             </div>
             <div className="text-sm font-bold text-blue-600 dark:text-blue-400">
-              {stats.plannedCount} РК{" "}
-              <span className="text-xs font-normal text-muted-foreground">
-                (в {stats.tkPlannedCount} ТК)
-              </span>
+              {stats.plannedCount} план •{" "}
+              <button
+                type="button"
+                onClick={() => setViewMode("bookings")}
+                className="text-amber-600 dark:text-amber-400 hover:underline"
+              >
+                {sortedBookings.length} бронь
+              </button>
             </div>
           </div>
 
@@ -729,12 +1252,125 @@ export function RebuildAdmin() {
         </div>
       </div>
 
+      {/* Основная область */}
       <div className="max-w-[1920px] w-full mx-auto px-3 mt-2 flex-1">
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground bg-card border rounded text-xs">
             Загрузка расписания...
           </div>
+        ) : viewMode === "bookings" ? (
+          /* ВИД 3: ОТДЕЛЬНЫЙ СПИСОК БРОНИРОВАНИЯ (СОРТИРОВКА ПО ДАТЕ ВНЕСЕНИЯ — КТО ПЕРВЫМ ВНЕС, ТОТ ПЕРВЫЙ) */
+          <div className="bg-card border rounded shadow-2xs overflow-hidden">
+            <div className="px-4 py-3 border-b bg-amber-500/10 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-bold flex items-center gap-1.5">
+                  <BookmarkCheck className="w-4 h-4 text-amber-600" />
+                  Список бронирования (очередь по времени внесения)
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Кто первым внёс данные, тот стоит в начале списка (№1 — самый высокий приоритет)
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
+                onClick={() => setBookingDialogOpen(true)}
+              >
+                <BookmarkPlus className="w-4 h-4" />
+                Добавить бронь
+              </Button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead className="bg-muted/50 border-b text-[11px] text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 text-left border-r w-[90px]">Очередь</th>
+                    <th className="px-3 py-2 text-left border-r w-[155px]">Дата внесения</th>
+                    <th className="px-3 py-2 text-left border-r w-[160px]">Фамилия</th>
+                    <th className="px-3 py-2 text-left border-r w-[180px]">Даты показа</th>
+                    <th className="px-3 py-2 text-center border-r w-[90px]">Формат</th>
+                    <th className="px-3 py-2 text-center border-r w-[110px]">Тип</th>
+                    <th className="px-3 py-2 text-center border-r w-[110px]">Хронометраж</th>
+                    <th className="px-3 py-2 text-left border-r">Список ТК</th>
+                    <th className="px-3 py-2 text-center w-[90px]">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedBookings.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                        Список бронирования пуст. Нажмите «+ Бронирование», чтобы занять место в очереди.
+                      </td>
+                    </tr>
+                  )}
+                  {sortedBookings.map((b, idx) => {
+                    const isPaid = b.payerType.toLowerCase().includes("плат") && !b.payerType.toLowerCase().includes("бес")
+                    return (
+                      <tr key={b.id} className="border-b hover:bg-muted/20 align-middle">
+                        <td className="px-3 py-2 border-r font-bold">
+                          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                            №{idx + 1}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 border-r font-mono text-[11px] text-muted-foreground whitespace-nowrap">
+                          {formatDateTimeRu(b.createdAt)}
+                        </td>
+                        <td className="px-3 py-2 border-r font-semibold text-sm">{b.surname}</td>
+                        <td className="px-3 py-2 border-r whitespace-nowrap font-medium">
+                          {b.startDate} — {b.endDate}
+                        </td>
+                        <td className="px-3 py-2 border-r text-center">
+                          <span className="px-2 py-0.5 rounded bg-muted font-semibold">
+                            {b.format}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 border-r text-center">
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 rounded font-semibold text-[11px]",
+                              isPaid
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                            )}
+                          >
+                            {b.payerType}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 border-r text-center font-mono font-bold text-primary">
+                          {b.duration} сек
+                        </td>
+                        <td className="px-3 py-2 border-r">
+                          <div className="font-medium text-[11px] mb-0.5">
+                            Выбрано ТК: <strong>{b.shoppingCenterNumbers.length}</strong>
+                          </div>
+                          <div
+                            className="text-[11px] text-muted-foreground max-w-[420px] truncate"
+                            title={b.tkNumbersRaw}
+                          >
+                            {b.tkNumbersRaw}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBooking(b.id, b.surname)}
+                            className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline"
+                            title="Удалить бронь"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Удалить
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : viewMode === "list" ? (
+          /* ВИД 1: СПИСОК ТК */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
@@ -906,6 +1542,7 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : (
+          /* ВИД 2: МАТРИЦА */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-auto max-h-[78vh]">
               <table className="w-full text-xs border-collapse min-w-max">
