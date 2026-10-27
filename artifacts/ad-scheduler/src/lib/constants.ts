@@ -21,8 +21,6 @@ export const CITIES = [
   "Саратов",
 ]
 
-// Лимиты хронометража на 1 ТК (кратные 5 секундам):
-// 180 сек всего = 125 сек (70% платно) + 55 сек (30% бесплатно)
 export const TK_QUOTAS = {
   TOTAL_MAX: 180,
   PAID_MAX: 125,
@@ -213,3 +211,117 @@ export const MASTER_TK_LIST: TkDirectoryItem[] = [
   { number: "906", format: "СМ", address: "ул. Сыромолотова, д. 31", city: "Екатеринбург" },
   { number: "907", format: "СМ", address: "ул. Московская, д. 200", city: "Екатеринбург" },
 ]
+
+export const MASTER_TK_SET = new Set(MASTER_TK_LIST.map((t) => t.number))
+
+// Разбор введенной строки номеров ТК на валидные (наши) и неизвестные (чужие)
+export function parseAndValidateTkNumbers(rawInput: string): {
+  allEntered: string[]
+  validNumbers: string[]
+  unknownNumbers: string[]
+} {
+  const tokens = rawInput
+    .split(/[,\s;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const uniqueTokens = Array.from(new Set(tokens))
+  const validNumbers = uniqueTokens.filter((n) => MASTER_TK_SET.has(n))
+  const unknownNumbers = uniqueTokens.filter((n) => !MASTER_TK_SET.has(n))
+  return {
+    allEntered: uniqueTokens,
+    validNumbers,
+    unknownNumbers,
+  }
+}
+
+export type QuotaAlertLevel = "ok" | "orange" | "red"
+
+export interface QuotaEvaluation {
+  level: QuotaAlertLevel
+  totalSec: number
+  paidSec: number
+  freeSec: number
+  paidRemainingSec: number
+  isOverTotal: boolean
+  isOverPaid: boolean
+  reason: string
+}
+
+// Новая бизнес-логика оценки хронометража ТК:
+// 1. Суммарно > 180с или Платно > 125с -> КРАСНОЕ предупреждение ("red")
+// 2. Бесплатные ролики можно грузить без предупреждений, если в платном хронометраже свободно > 20 сек (>= 25с)
+// 3. Если при прогрузке бесплатных роликов в платном осталось от 10 до 20 сек (10, 15, 20с) -> ОРАНЖЕВОЕ предупреждение ("orange")
+// 4. Если при прогрузке бесплатных роликов в платном осталось от 0 до 5 сек (0, 5с) -> КРАСНОЕ предупреждение ("red")
+export function evaluateTkQuota(paidSec: number, freeSec: number): QuotaEvaluation {
+  const totalSec = paidSec + freeSec
+  const paidRemainingSec = Math.min(
+    TK_QUOTAS.PAID_MAX - paidSec,
+    TK_QUOTAS.TOTAL_MAX - totalSec
+  )
+  const isOverTotal = totalSec > TK_QUOTAS.TOTAL_MAX
+  const isOverPaid = paidSec > TK_QUOTAS.PAID_MAX
+
+  if (isOverTotal) {
+    return {
+      level: "red",
+      totalSec,
+      paidSec,
+      freeSec,
+      paidRemainingSec,
+      isOverTotal,
+      isOverPaid,
+      reason: `Превышен суммарный лимит 180с (${totalSec}с)`,
+    }
+  }
+
+  if (isOverPaid) {
+    return {
+      level: "red",
+      totalSec,
+      paidSec,
+      freeSec,
+      paidRemainingSec,
+      isOverTotal,
+      isOverPaid,
+      reason: `Превышен платный лимит 125с (${paidSec}с)`,
+    }
+  }
+
+  if (freeSec > 0) {
+    if (paidRemainingSec <= 5) {
+      return {
+        level: "red",
+        totalSec,
+        paidSec,
+        freeSec,
+        paidRemainingSec,
+        isOverTotal,
+        isOverPaid,
+        reason: `В платном хронометраже осталось ${Math.max(0, paidRemainingSec)}с (0–5с)`,
+      }
+    }
+    if (paidRemainingSec >= 10 && paidRemainingSec <= 20) {
+      return {
+        level: "orange",
+        totalSec,
+        paidSec,
+        freeSec,
+        paidRemainingSec,
+        isOverTotal,
+        isOverPaid,
+        reason: `В платном хронометраже осталось ${paidRemainingSec}с (10–20с)`,
+      }
+    }
+  }
+
+  return {
+    level: "ok",
+    totalSec,
+    paidSec,
+    freeSec,
+    paidRemainingSec,
+    isOverTotal,
+    isOverPaid,
+    reason: "В норме",
+  }
+}
