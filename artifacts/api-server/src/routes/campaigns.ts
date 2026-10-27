@@ -20,6 +20,19 @@ async function ensureCampaignColumns() {
   try {
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS tk_type text`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS note text`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS bookings (
+        id serial PRIMARY KEY,
+        surname text NOT NULL,
+        start_date text NOT NULL,
+        end_date text NOT NULL,
+        format text NOT NULL,
+        payer_type text NOT NULL,
+        duration integer NOT NULL,
+        tk_numbers text NOT NULL,
+        created_at timestamp with time zone DEFAULT now() NOT NULL
+      )
+    `);
     schemaEnsured = true;
   } catch (err) {
     console.error("Schema check error:", err);
@@ -29,9 +42,131 @@ async function ensureCampaignColumns() {
 function normalizePayerStatus(raw: unknown): "Платник" | "Не платник" {
   if (!raw) return "Не платник";
   const s = String(raw).trim().toLowerCase();
-  if (s === "платный" || s === "платник") return "Платник";
+  if (s === "платный" || s === "платник" || s === "платная") return "Платник";
   return "Не платник";
 }
+
+function extractRows(result: unknown): any[] {
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === "object" && Array.isArray((result as any).rows)) {
+    return (result as any).rows;
+  }
+  return [];
+}
+
+// ==================== МАРШРУТЫ БРОНИРОВАНИЯ ====================
+
+router.get("/bookings", async (_req, res): Promise<void> => {
+  try {
+    await ensureCampaignColumns();
+    const rawRes = await db.execute(
+      sql`SELECT id, surname, start_date, end_date, format, payer_type, duration, tk_numbers, created_at FROM bookings ORDER BY created_at ASC, id ASC`
+    );
+    const rows = extractRows(rawRes);
+    const formatted = rows.map((r) => ({
+      id: Number(r.id),
+      surname: String(r.surname || ""),
+      startDate: String(r.start_date || ""),
+      endDate: String(r.end_date || ""),
+      format: String(r.format || "ГМ"),
+      payerType: String(r.payer_type || "платная"),
+      duration: Number(r.duration || 5),
+      shoppingCenterNumbers: String(r.tk_numbers || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      tkNumbersRaw: String(r.tk_numbers || ""),
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+    }));
+    res.json(formatted);
+  } catch (err: any) {
+    console.error("GET /bookings error:", err);
+    res.status(500).json({ error: err?.message || "Ошибка загрузки списка бронирования" });
+  }
+});
+
+router.post("/bookings", async (req, res): Promise<void> => {
+  try {
+    await ensureCampaignColumns();
+    const surname = String(req.body?.surname || "").trim();
+    const startDate = String(req.body?.startDate || "").trim();
+    const endDate = String(req.body?.endDate || "").trim();
+    const format = String(req.body?.format || "ГМ").trim();
+    const payerType = String(req.body?.payerType || "платная").trim();
+    const duration = Number(req.body?.duration || 0);
+
+    const rawNums = Array.isArray(req.body?.shoppingCenterNumbers)
+      ? req.body.shoppingCenterNumbers
+      : String(req.body?.shoppingCenterNumbers || "").split(",");
+    const uniqueScNumbers = Array.from(
+      new Set(rawNums.map((n: unknown) => String(n).trim()).filter(Boolean))
+    );
+    const tkNumbersStr = uniqueScNumbers.join(", ");
+
+    if (!surname) {
+      res.status(400).json({ error: "Укажите фамилию" });
+      return;
+    }
+    if (!startDate || !endDate || startDate > endDate) {
+      res.status(400).json({ error: "Проверьте даты показа" });
+      return;
+    }
+    if (!duration || duration <= 0) {
+      res.status(400).json({ error: "Выберите хронометраж" });
+      return;
+    }
+    if (uniqueScNumbers.length === 0) {
+      res.status(400).json({ error: "Укажите список ТК" });
+      return;
+    }
+
+    const insertRes = await db.execute(
+      sql`INSERT INTO bookings (surname, start_date, end_date, format, payer_type, duration, tk_numbers)
+          VALUES (${surname}, ${startDate}, ${endDate}, ${format}, ${payerType}, ${duration}, ${tkNumbersStr})
+          RETURNING id, surname, start_date, end_date, format, payer_type, duration, tk_numbers, created_at`
+    );
+    const rows = extractRows(insertRes);
+    const r = rows[0] || {};
+
+    broadcastDataUpdated();
+
+    res.status(201).json({
+      id: Number(r.id),
+      surname: String(r.surname || surname),
+      startDate: String(r.start_date || startDate),
+      endDate: String(r.end_date || endDate),
+      format: String(r.format || format),
+      payerType: String(r.payer_type || payerType),
+      duration: Number(r.duration || duration),
+      shoppingCenterNumbers: uniqueScNumbers,
+      tkNumbersRaw: tkNumbersStr,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error("POST /bookings error:", err);
+    res.status(500).json({ error: err?.message || "Ошибка сохранения брони" });
+  }
+});
+
+router.delete("/bookings/:id", async (req, res): Promise<void> => {
+  try {
+    await ensureCampaignColumns();
+    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const idParsed = parseInt(rawId, 10);
+    if (Number.isNaN(idParsed)) {
+      res.status(400).json({ error: "Некорректный ID брони" });
+      return;
+    }
+    await db.execute(sql`DELETE FROM bookings WHERE id = ${idParsed}`);
+    broadcastDataUpdated();
+    res.json({ success: true, deleted: 1 });
+  } catch (err: any) {
+    console.error("DELETE /bookings/:id error:", err);
+    res.status(500).json({ error: err?.message || "Ошибка удаления брони" });
+  }
+});
+
+// ==================== МАРШРУТЫ РЕКЛАМНЫХ КАМПАНИЙ ====================
 
 router.get("/campaigns", async (req, res): Promise<void> => {
   try {
