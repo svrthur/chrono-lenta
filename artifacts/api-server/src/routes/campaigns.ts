@@ -23,6 +23,7 @@ async function ensureCampaignColumns() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS bookings (
         id serial PRIMARY KEY,
+        campaign_name text DEFAULT '' NOT NULL,
         surname text NOT NULL,
         start_date text NOT NULL,
         end_date text NOT NULL,
@@ -33,6 +34,7 @@ async function ensureCampaignColumns() {
         created_at timestamp with time zone DEFAULT now() NOT NULL
       )
     `);
+    await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS campaign_name text DEFAULT '' NOT NULL`);
     schemaEnsured = true;
   } catch (err) {
     console.error("Schema check error:", err);
@@ -60,11 +62,12 @@ router.get("/bookings", async (_req, res): Promise<void> => {
   try {
     await ensureCampaignColumns();
     const rawRes = await db.execute(
-      sql`SELECT id, surname, start_date, end_date, format, payer_type, duration, tk_numbers, created_at FROM bookings ORDER BY created_at ASC, id ASC`
+      sql`SELECT id, campaign_name, surname, start_date, end_date, format, payer_type, duration, tk_numbers, created_at FROM bookings ORDER BY created_at ASC, id ASC`
     );
     const rows = extractRows(rawRes);
     const formatted = rows.map((r) => ({
       id: Number(r.id),
+      campaignName: String(r.campaign_name || ""),
       surname: String(r.surname || ""),
       startDate: String(r.start_date || ""),
       endDate: String(r.end_date || ""),
@@ -88,6 +91,7 @@ router.get("/bookings", async (_req, res): Promise<void> => {
 router.post("/bookings", async (req, res): Promise<void> => {
   try {
     await ensureCampaignColumns();
+    const campaignName = String(req.body?.campaignName || req.body?.name || "").trim();
     const surname = String(req.body?.surname || "").trim();
     const startDate = String(req.body?.startDate || "").trim();
     const endDate = String(req.body?.endDate || "").trim();
@@ -103,6 +107,10 @@ router.post("/bookings", async (req, res): Promise<void> => {
     );
     const tkNumbersStr = uniqueScNumbers.join(", ");
 
+    if (!campaignName) {
+      res.status(400).json({ error: "Укажите название рекламной кампании" });
+      return;
+    }
     if (!surname) {
       res.status(400).json({ error: "Укажите фамилию" });
       return;
@@ -121,9 +129,9 @@ router.post("/bookings", async (req, res): Promise<void> => {
     }
 
     const insertRes = await db.execute(
-      sql`INSERT INTO bookings (surname, start_date, end_date, format, payer_type, duration, tk_numbers)
-          VALUES (${surname}, ${startDate}, ${endDate}, ${format}, ${payerType}, ${duration}, ${tkNumbersStr})
-          RETURNING id, surname, start_date, end_date, format, payer_type, duration, tk_numbers, created_at`
+      sql`INSERT INTO bookings (campaign_name, surname, start_date, end_date, format, payer_type, duration, tk_numbers)
+          VALUES (${campaignName}, ${surname}, ${startDate}, ${endDate}, ${format}, ${payerType}, ${duration}, ${tkNumbersStr})
+          RETURNING id, campaign_name, surname, start_date, end_date, format, payer_type, duration, tk_numbers, created_at`
     );
     const rows = extractRows(insertRes);
     const r = rows[0] || {};
@@ -132,6 +140,7 @@ router.post("/bookings", async (req, res): Promise<void> => {
 
     res.status(201).json({
       id: Number(r.id),
+      campaignName: String(r.campaign_name || campaignName),
       surname: String(r.surname || surname),
       startDate: String(r.start_date || startDate),
       endDate: String(r.end_date || endDate),
@@ -166,7 +175,7 @@ router.delete("/bookings/:id", async (req, res): Promise<void> => {
   }
 });
 
-// ==================== МАРШРУТЫ РЕКЛАМНЫХ КАМПАНИЙ ====================
+// ==================== МАРШРУТЫ КАМПАНИЙ ====================
 
 router.get("/campaigns", async (req, res): Promise<void> => {
   try {
