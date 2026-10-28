@@ -314,10 +314,6 @@ export function RebuildAdmin() {
   const [onlyOverLimit, setOnlyOverLimit] = useState<boolean>(false)
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "опубликовано" | "запланировано" | "завершён"
-  >("all")
-
   const [campaignTypeFilter, setCampaignTypeFilter] = useState<string>("")
   const [campaignFormatFilter, setCampaignFormatFilter] = useState<string>("")
   const [clientFilter, setClientFilter] = useState<string>("")
@@ -585,17 +581,12 @@ export function RebuildAdmin() {
     () => baseFilteredCampaigns.filter((c) => c._statusOnDate === "запланировано"),
     [baseFilteredCampaigns]
   )
-  const finishedCampaigns = useMemo(
-    () => baseFilteredCampaigns.filter((c) => c._statusOnDate === "завершён"),
-    [baseFilteredCampaigns]
-  )
 
-  const displayedCampaigns = useMemo(() => {
-    if (statusFilter === "опубликовано") return publishedCampaigns
-    if (statusFilter === "запланировано") return plannedCampaigns
-    if (statusFilter === "завершён") return finishedCampaigns
-    return baseFilteredCampaigns
-  }, [statusFilter, publishedCampaigns, plannedCampaigns, finishedCampaigns, baseFilteredCampaigns])
+  // В развернутом виде и в матрице показываем опубликованные и запланированные РК
+  const displayedCampaigns = useMemo(
+    () => [...publishedCampaigns, ...plannedCampaigns],
+    [publishedCampaigns, plannedCampaigns]
+  )
 
   const activeBookingsOnDate = useMemo(() => {
     return evaluatedBookings.filter((b) => {
@@ -723,7 +714,6 @@ export function RebuildAdmin() {
 
     const pubVis = inVisible(publishedCampaigns)
     const planVis = inVisible(plannedCampaigns)
-    const finVis = inVisible(finishedCampaigns)
     const redTkCount = filteredTkRows.filter((t) => t.alertLevel === "red").length
     const orangeTkCount = filteredTkRows.filter((t) => t.alertLevel === "orange").length
     const conflictBookingsCount = evaluatedBookings.filter((b) => b._hasConflict).length
@@ -740,10 +730,9 @@ export function RebuildAdmin() {
       expiringCount: pubVis.filter((c) => c._isExpiringSoon).length,
       publishedCount: pubVis.length,
       plannedCount: planVis.length,
-      finishedCount: finVis.length,
       conflictBookingsCount,
     }
-  }, [filteredTkRows, publishedCampaigns, plannedCampaigns, finishedCampaigns, evaluatedBookings])
+  }, [filteredTkRows, publishedCampaigns, plannedCampaigns, evaluatedBookings])
 
   const handleExportTkCsv = () => {
     const headers = [
@@ -794,7 +783,6 @@ export function RebuildAdmin() {
     setOnlyExpiringSoon(false)
     setIncludeBookingsInTk(false)
     setSelectedDate(new Date())
-    setStatusFilter("all")
     setCampaignTypeFilter("")
     setCampaignFormatFilter("")
     setClientFilter("")
@@ -1263,54 +1251,6 @@ export function RebuildAdmin() {
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
-
-              {/* Переключатель статусов (без «Опубликовано + План») */}
-              <div className="inline-flex rounded border bg-muted/40 p-0.5 text-xs">
-                <button
-                  onClick={() => setStatusFilter("опубликовано")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-semibold transition-colors",
-                    statusFilter === "опубликовано"
-                      ? "bg-emerald-600 text-white"
-                      : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
-                  )}
-                >
-                  Опубликовано ({stats.publishedCount})
-                </button>
-                <button
-                  onClick={() => setStatusFilter("запланировано")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-semibold transition-colors",
-                    statusFilter === "запланировано"
-                      ? "bg-blue-600 text-white"
-                      : "text-blue-700 dark:text-blue-400 hover:bg-blue-500/10"
-                  )}
-                >
-                  Запланировано ({stats.plannedCount})
-                </button>
-                <button
-                  onClick={() => setStatusFilter("завершён")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-colors",
-                    statusFilter === "завершён"
-                      ? "bg-zinc-600 text-white"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Завершён ({stats.finishedCount})
-                </button>
-                <button
-                  onClick={() => setStatusFilter("all")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-colors",
-                    statusFilter === "all"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Все ({stats.publishedCount + stats.plannedCount + stats.finishedCount})
-                </button>
-              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1458,7 +1398,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Верхняя сводка (4 карточки без «Правило квот ТК») */}
+      {/* Верхняя сводка (4 карточки) */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
