@@ -515,5 +515,19 @@ router.put("/campaigns/:id", async (req, res): Promise<void> => {
     res.status(500).json({ error: err?.message || "Ошибка обновления кампании" });
   }
 });
+// ==================== ВСТРОЕННЫЙ АНТИ-СОН ДЛЯ RENDER (KEEP-ALIVE) ====================
+const EXTERNAL_API_URL =
+  process.env.RENDER_EXTERNAL_URL || "https://chrono-lenta-api.onrender.com";
 
+if (process.env.NODE_ENV === "production" || process.env.RENDER) {
+  setInterval(() => {
+    fetch(`${EXTERNAL_API_URL}/api/healthz`, { method: "GET" })
+      .then((r) => {
+        if (!r.ok) {
+          return fetch(`${EXTERNAL_API_URL}/api/bookings`, { method: "GET" });
+        }
+      })
+      .catch((err) => console.error("Keep-alive ping error:", err));
+  }, 8 * 60 * 1000); // Каждые 8 минут (лимит сна Render — 15 минут)
+}
 export default router;
