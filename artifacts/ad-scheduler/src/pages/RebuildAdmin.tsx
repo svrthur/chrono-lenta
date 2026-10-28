@@ -317,10 +317,8 @@ export function RebuildAdmin() {
   const [campaignTypeFilter, setCampaignTypeFilter] = useState<string>("")
   const [campaignFormatFilter, setCampaignFormatFilter] = useState<string>("")
   const [clientFilter, setClientFilter] = useState<string>("")
-  const [onlyExpiringSoon, setOnlyExpiringSoon] = useState<boolean>(false)
 
   const dateIso = format(selectedDate, "yyyy-MM-dd")
-  const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
 
   const evaluatedBookings = useMemo(
     () => evaluateBookingsQueue(rawBookings, rawCampaigns),
@@ -534,9 +532,6 @@ export function RebuildAdmin() {
       if (c.startDate > dateIso) statusOnDate = "запланировано"
       else if (c.endDate < dateIso) statusOnDate = "завершён"
 
-      const isExpiringSoon =
-        statusOnDate === "опубликовано" && c.endDate >= dateIso && c.endDate <= in3DaysIso
-
       return {
         ...c,
         _isPaid: Boolean(isPaid),
@@ -544,34 +539,51 @@ export function RebuildAdmin() {
         _format: formatLabel,
         _scNumbersSet: scNumbersSet,
         _statusOnDate: statusOnDate,
-        _isExpiringSoon: isExpiringSoon,
       }
     })
-  }, [rawCampaigns, dateIso, in3DaysIso])
+  }, [rawCampaigns, dateIso])
 
   const allClients = useMemo(
     () => Array.from(new Set(enrichedCampaigns.map((c) => c.client))).filter(Boolean).sort(),
     [enrichedCampaigns]
   )
 
+  // ВСЕ реально опубликованные и запланированные РК на выбранную дату (для неизменного расчета хронометража ТК)
+  const allPublishedOnDate = useMemo(
+    () =>
+      enrichedCampaigns
+        .filter((c) => c._statusOnDate === "опубликовано")
+        .sort((a, b) => a.client.localeCompare(b.client, "ru")),
+    [enrichedCampaigns]
+  )
+  const allPlannedOnDate = useMemo(
+    () =>
+      enrichedCampaigns
+        .filter((c) => c._statusOnDate === "запланировано")
+        .sort((a, b) => a.client.localeCompare(b.client, "ru")),
+    [enrichedCampaigns]
+  )
+
+  // Все брони на выбранную дату (для точного расчета хронометража ТК при включенной галочке «Учитывать бронь»)
+  const allBookingsOnDate = useMemo(
+    () => evaluatedBookings.filter((b) => b.startDate <= dateIso && b.endDate >= dateIso),
+    [evaluatedBookings, dateIso]
+  )
+
+  const hasCampaignFilter = Boolean(campaignTypeFilter || campaignFormatFilter || clientFilter)
+
+  // Кампании с учетом выбранных фильтров (Тип / Формат РК / Заказчик)
   const baseFilteredCampaigns = useMemo(() => {
     const list = enrichedCampaigns.filter((c) => {
       if (campaignTypeFilter && c._type !== campaignTypeFilter) return false
       if (campaignFormatFilter && c._format !== campaignFormatFilter) return false
       if (clientFilter && c.client !== clientFilter) return false
-      if (onlyExpiringSoon && !c._isExpiringSoon) return false
       return true
     })
 
     list.sort((a, b) => a.client.localeCompare(b.client, "ru"))
     return list
-  }, [
-    enrichedCampaigns,
-    campaignTypeFilter,
-    campaignFormatFilter,
-    clientFilter,
-    onlyExpiringSoon,
-  ])
+  }, [enrichedCampaigns, campaignTypeFilter, campaignFormatFilter, clientFilter])
 
   const publishedCampaigns = useMemo(
     () => baseFilteredCampaigns.filter((c) => c._statusOnDate === "опубликовано"),
@@ -582,30 +594,18 @@ export function RebuildAdmin() {
     [baseFilteredCampaigns]
   )
 
-  // В развернутом виде и в матрице показываем опубликованные и запланированные РК
   const displayedCampaigns = useMemo(
     () => [...publishedCampaigns, ...plannedCampaigns],
     [publishedCampaigns, plannedCampaigns]
   )
 
-  const activeBookingsOnDate = useMemo(() => {
-    return evaluatedBookings.filter((b) => {
-      if (b.startDate > dateIso || b.endDate < dateIso) return false
-      if (campaignTypeFilter) {
-        const bTypeNorm = b._isPaid ? "платный" : "не платный"
-        if (bTypeNorm !== campaignTypeFilter) return false
-      }
-      if (campaignFormatFilter && b.format !== campaignFormatFilter) return false
-      return true
-    })
-  }, [evaluatedBookings, dateIso, campaignTypeFilter, campaignFormatFilter])
-
   const filteredTkRows = useMemo(() => {
     return MASTER_TK_LIST.map((tk) => {
-      const activeList = publishedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
-      const plannedList = plannedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
+      // Фактическая загрузка экрана считается ВСЕГДА по всем активным РК на выбранную дату
+      const activeList = allPublishedOnDate.filter((c) => c._scNumbersSet.has(tk.number))
+      const plannedList = allPlannedOnDate.filter((c) => c._scNumbersSet.has(tk.number))
       const shownList = displayedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
-      const bookingsInTk = activeBookingsOnDate.filter((b) => b._scSet.has(tk.number))
+      const bookingsInTk = allBookingsOnDate.filter((b) => b._scSet.has(tk.number))
 
       const airPaidDuration = activeList
         .filter((c) => c._isPaid)
@@ -679,16 +679,18 @@ export function RebuildAdmin() {
       if (tkFormatFilter !== "ALL" && tk.format !== tkFormatFilter) return false
       if (cityFilter && tk.city !== cityFilter) return false
       if (onlyOverLimit && !tk.isOverLimit) return false
+      if (hasCampaignFilter && tk.shownList.length === 0) return false
       return true
     })
   }, [
     tkFormatFilter,
     cityFilter,
     onlyOverLimit,
-    publishedCampaigns,
-    plannedCampaigns,
+    hasCampaignFilter,
+    allPublishedOnDate,
+    allPlannedOnDate,
     displayedCampaigns,
-    activeBookingsOnDate,
+    allBookingsOnDate,
     includeBookingsInTk,
   ])
 
@@ -727,7 +729,6 @@ export function RebuildAdmin() {
       overLimitTkCount: redTkCount + orangeTkCount,
       redTkCount,
       orangeTkCount,
-      expiringCount: pubVis.filter((c) => c._isExpiringSoon).length,
       publishedCount: pubVis.length,
       plannedCount: planVis.length,
       conflictBookingsCount,
@@ -780,7 +781,6 @@ export function RebuildAdmin() {
     setTkFormatFilter("ALL")
     setCityFilter("")
     setOnlyOverLimit(false)
-    setOnlyExpiringSoon(false)
     setIncludeBookingsInTk(false)
     setSelectedDate(new Date())
     setCampaignTypeFilter("")
@@ -820,7 +820,6 @@ export function RebuildAdmin() {
           </DialogHeader>
 
           <div className="grid gap-3.5 py-2">
-            {/* 1. Название РК */}
             <div className="grid gap-1.5">
               <Label>
                 Название РК <span className="text-destructive">*</span>
@@ -832,7 +831,6 @@ export function RebuildAdmin() {
               />
             </div>
 
-            {/* 2. Фамилия */}
             <div className="grid gap-1.5">
               <Label>
                 Фамилия <span className="text-destructive">*</span>
@@ -844,7 +842,6 @@ export function RebuildAdmin() {
               />
             </div>
 
-            {/* 3. Даты показа */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>
@@ -904,7 +901,6 @@ export function RebuildAdmin() {
               </div>
             </div>
 
-            {/* 4. Формат, 5. Тип, 6. Хронометраж */}
             <div className="grid grid-cols-3 gap-3">
               <div className="grid gap-1.5">
                 <Label>
@@ -958,7 +954,6 @@ export function RebuildAdmin() {
               </div>
             </div>
 
-            {/* 7. Список ТК */}
             <div className="grid gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <Label>
@@ -1007,7 +1002,6 @@ export function RebuildAdmin() {
                 className={cn(bParsedTk.unknownNumbers.length > 0 && "border-destructive")}
               />
 
-              {/* Уведомление о чужих ТК */}
               {bParsedTk.unknownNumbers.length > 0 && (
                 <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-center justify-between gap-2">
                   <div className="flex items-start gap-1.5">
@@ -1373,16 +1367,7 @@ export function RebuildAdmin() {
                   checked={includeBookingsInTk}
                   onChange={(e) => setIncludeBookingsInTk(e.target.checked)}
                 />
-                Учитывать бронь в ТК ({activeBookingsOnDate.length})
-              </label>
-
-              <label className="flex items-center gap-1 cursor-pointer select-none text-amber-700 dark:text-amber-400 font-medium">
-                <input
-                  type="checkbox"
-                  checked={onlyExpiringSoon}
-                  onChange={(e) => setOnlyExpiringSoon(e.target.checked)}
-                />
-                Истекают ≤ 3 дн. ({stats.expiringCount})
+                Учитывать бронь в ТК ({allBookingsOnDate.length})
               </label>
 
               <label className="flex items-center gap-1 cursor-pointer select-none text-red-600 dark:text-red-400 font-medium">
