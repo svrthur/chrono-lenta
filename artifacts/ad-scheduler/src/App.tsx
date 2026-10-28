@@ -15,12 +15,10 @@ type ActivePage = "admin" | "board"
 
 const DEFAULT_PIN = "1234"
 
-// Пункт 1: по ссылке в первую очередь ВСЕГДА открывается страница для коллег ('board')
 function getInitialPage(): ActivePage {
-  const hash = window.location.hash.toLowerCase()
+  const hash = window.location.hash
   if (hash === "#admin") {
-    const isUnlocked = sessionStorage.getItem("chrono_admin_unlocked") === "true"
-    if (isUnlocked) return "admin"
+    return "admin"
   }
   return "board"
 }
@@ -36,7 +34,7 @@ export function App() {
   const [newPin, setNewPin] = useState<string>("")
 
   useEffect(() => {
-    window.location.hash = page === "board" ? "#board" : "#admin"
+    window.location.hash = page === "admin" ? "#admin" : "#board"
   }, [page])
 
   const getSavedPin = () => localStorage.getItem("chrono_admin_pin") || DEFAULT_PIN
@@ -76,7 +74,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <div className="min-h-screen bg-background flex flex-col">
-          <header className="border-b bg-card px-4 py-2 flex items-center justify-between sticky top-0 z-50 shadow-2xs">
+          <header className="border-b bg-card px-4 py-2.5 flex items-center justify-between sticky top-0 z-50 shadow-2xs">
             <div className="flex items-center gap-3">
               <span className="text-base font-bold tracking-tight">Chrono Lenta</span>
               <span className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">
@@ -137,7 +135,7 @@ export function App() {
               <Button
                 variant={page === "board" ? "default" : "ghost"}
                 size="sm"
-                className="gap-1.5 h-8 text-xs"
+                className="gap-1.5 h-8 text-xs font-semibold"
                 onClick={() => setPage("board")}
               >
                 <MonitorPlay className="w-3.5 h-3.5" />
@@ -151,7 +149,7 @@ export function App() {
                 onClick={() => setPage("admin")}
               >
                 {isUnlocked ? (
-                  <Unlock className="w-3.5 h-3.5" />
+                  <Unlock className="w-3.5 h-3.5 text-emerald-600" />
                 ) : (
                   <Settings className="w-3.5 h-3.5" />
                 )}
