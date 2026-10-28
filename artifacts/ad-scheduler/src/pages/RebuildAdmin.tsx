@@ -4,10 +4,8 @@ import { format, addDays, subDays } from "date-fns"
 import { ru } from "date-fns/locale"
 import {
   CalendarIcon,
-  ArrowUpDown,
   LayoutGrid,
   ListFilter,
-  Search,
   RotateCcw,
   AlertTriangle,
   Download,
@@ -278,12 +276,11 @@ export function RebuildAdmin() {
   const [viewMode, setViewMode] = useState<"list" | "matrix" | "bookings">("list")
   const [bookingDialogOpen, setBookingDialogOpen] = useState<boolean>(false)
 
-  // Исправление бага скролла при переключении режима
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" as any })
   }, [viewMode])
 
-  // ПО УМОЛЧАНИЮ ОТКЛЮЧЕНО: показывать только основной хронометраж
+  // По умолчанию отключено: показывать только основной хронометраж
   const [includeBookingsInTk, setIncludeBookingsInTk] = useState<boolean>(false)
 
   // Раскрытие строк в столбце РК
@@ -298,7 +295,7 @@ export function RebuildAdmin() {
     })
   }
 
-  // Поля формы бронирования (включая название РК)
+  // Поля формы бронирования
   const [bCampaignName, setBCampaignName] = useState<string>("")
   const [bSurname, setBSurname] = useState<string>("")
   const [bStartDate, setBStartDate] = useState<Date | undefined>(undefined)
@@ -314,23 +311,17 @@ export function RebuildAdmin() {
   // Фильтры ТК и РК
   const [tkFormatFilter, setTkFormatFilter] = useState<"ALL" | "ГМ" | "СМ">("ALL")
   const [cityFilter, setCityFilter] = useState<string>("")
-  const [searchTk, setSearchTk] = useState<string>("")
-  const [onlyWithAds, setOnlyWithAds] = useState<boolean>(false)
   const [onlyOverLimit, setOnlyOverLimit] = useState<boolean>(false)
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [statusFilter, setStatusFilter] = useState<
-    "active_and_planned" | "all" | "опубликовано" | "запланировано" | "завершён"
-  >("active_and_planned")
+    "all" | "опубликовано" | "запланировано" | "завершён"
+  >("all")
 
   const [campaignTypeFilter, setCampaignTypeFilter] = useState<string>("")
   const [campaignFormatFilter, setCampaignFormatFilter] = useState<string>("")
   const [clientFilter, setClientFilter] = useState<string>("")
-  const [searchQuery, setSearchQuery] = useState<string>("")
   const [onlyExpiringSoon, setOnlyExpiringSoon] = useState<boolean>(false)
-
-  const [sortBy, setSortBy] = useState<"client" | "format" | "type" | "duration" | "status" | "name">("client")
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   const dateIso = format(selectedDate, "yyyy-MM-dd")
   const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
@@ -398,12 +389,10 @@ export function RebuildAdmin() {
     setBTkNumbers(MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number).join(", "))
   }
 
-  // При выборе формата список ТК НЕ заполняется автоматически
   const handleBFormatChange = (v: string) => {
     setBFormat(v)
   }
 
-  // Раздельный выбор ТК по городам для ГМ и СМ
   const toggleCityFormatTks = (city: string, targetFmt: "ГМ" | "СМ") => {
     const next = new Set(bSelectedSet)
     const matched = MASTER_TK_LIST.filter((t) => t.city === city && t.format === targetFmt)
@@ -575,29 +564,10 @@ export function RebuildAdmin() {
       if (campaignFormatFilter && c._format !== campaignFormatFilter) return false
       if (clientFilter && c.client !== clientFilter) return false
       if (onlyExpiringSoon && !c._isExpiringSoon) return false
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase()
-        if (!c.name.toLowerCase().includes(q) && !c.client.toLowerCase().includes(q)) return false
-      }
       return true
     })
 
-    list.sort((a, b) => {
-      const getVal = (item: typeof a) => {
-        if (sortBy === "client") return item.client.toLowerCase()
-        if (sortBy === "format") return item._format.toLowerCase()
-        if (sortBy === "type") return item._type.toLowerCase()
-        if (sortBy === "status") return item._statusOnDate
-        if (sortBy === "duration") return item.duration
-        return item.name.toLowerCase()
-      }
-      const valA = getVal(a)
-      const valB = getVal(b)
-      if (valA < valB) return sortDir === "asc" ? -1 : 1
-      if (valA > valB) return sortDir === "asc" ? 1 : -1
-      return 0
-    })
-
+    list.sort((a, b) => a.client.localeCompare(b.client, "ru"))
     return list
   }, [
     enrichedCampaigns,
@@ -605,9 +575,6 @@ export function RebuildAdmin() {
     campaignFormatFilter,
     clientFilter,
     onlyExpiringSoon,
-    searchQuery,
-    sortBy,
-    sortDir,
   ])
 
   const publishedCampaigns = useMemo(
@@ -627,8 +594,7 @@ export function RebuildAdmin() {
     if (statusFilter === "опубликовано") return publishedCampaigns
     if (statusFilter === "запланировано") return plannedCampaigns
     if (statusFilter === "завершён") return finishedCampaigns
-    if (statusFilter === "all") return baseFilteredCampaigns
-    return [...publishedCampaigns, ...plannedCampaigns]
+    return baseFilteredCampaigns
   }, [statusFilter, publishedCampaigns, plannedCampaigns, finishedCampaigns, baseFilteredCampaigns])
 
   const activeBookingsOnDate = useMemo(() => {
@@ -721,26 +687,13 @@ export function RebuildAdmin() {
     }).filter((tk) => {
       if (tkFormatFilter !== "ALL" && tk.format !== tkFormatFilter) return false
       if (cityFilter && tk.city !== cityFilter) return false
-      if (onlyWithAds && !tk.hasAnyItems) return false
       if (onlyOverLimit && !tk.isOverLimit) return false
-      if (searchTk.trim()) {
-        const q = searchTk.trim().toLowerCase()
-        if (
-          !tk.number.toLowerCase().includes(q) &&
-          !tk.address.toLowerCase().includes(q) &&
-          !tk.city.toLowerCase().includes(q)
-        ) {
-          return false
-        }
-      }
       return true
     })
   }, [
     tkFormatFilter,
     cityFilter,
-    onlyWithAds,
     onlyOverLimit,
-    searchTk,
     publishedCampaigns,
     plannedCampaigns,
     displayedCampaigns,
@@ -837,19 +790,14 @@ export function RebuildAdmin() {
   const resetFilters = () => {
     setTkFormatFilter("ALL")
     setCityFilter("")
-    setSearchTk("")
-    setOnlyWithAds(false)
     setOnlyOverLimit(false)
     setOnlyExpiringSoon(false)
     setIncludeBookingsInTk(false)
     setSelectedDate(new Date())
-    setStatusFilter("active_and_planned")
+    setStatusFilter("all")
     setCampaignTypeFilter("")
     setCampaignFormatFilter("")
     setClientFilter("")
-    setSearchQuery("")
-    setSortBy("client")
-    setSortDir("asc")
   }
 
   const getStatusBadge = (status: CampaignStatusLabel, startDate?: string) => {
@@ -1114,7 +1062,6 @@ export function RebuildAdmin() {
                 </button>
               </div>
 
-              {/* Раздельный выбор по городам: ГМ и СМ */}
               {bShowPicker && (
                 <div className="border rounded-md p-2.5 bg-muted/20 space-y-2.5">
                   <div className="text-[11px] font-semibold text-muted-foreground">
@@ -1184,7 +1131,6 @@ export function RebuildAdmin() {
               )}
             </div>
 
-            {/* Красное предупреждение */}
             {draftRedConflicts.length > 0 && (
               <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
@@ -1203,7 +1149,6 @@ export function RebuildAdmin() {
               </div>
             )}
 
-            {/* Оранжевое предупреждение */}
             {draftOrangeConflicts.length > 0 && (
               <div className="p-2.5 rounded-md border border-orange-500/50 bg-orange-500/15 text-orange-800 dark:text-orange-300 text-xs space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
@@ -1319,19 +1264,8 @@ export function RebuildAdmin() {
                 </Button>
               </div>
 
-              {/* Цветовая дифференциация в кнопках статусов */}
+              {/* Переключатель статусов (без «Опубликовано + План») */}
               <div className="inline-flex rounded border bg-muted/40 p-0.5 text-xs">
-                <button
-                  onClick={() => setStatusFilter("active_and_planned")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-colors",
-                    statusFilter === "active_and_planned"
-                      ? "bg-background text-foreground shadow-2xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Опубликовано + План ({stats.publishedCount + stats.plannedCount})
-                </button>
                 <button
                   onClick={() => setStatusFilter("опубликовано")}
                   className={cn(
@@ -1376,16 +1310,6 @@ export function RebuildAdmin() {
                 >
                   Все ({stats.publishedCount + stats.plannedCount + stats.finishedCount})
                 </button>
-              </div>
-
-              <div className="relative">
-                <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="№ ТК или адрес..."
-                  value={searchTk}
-                  onChange={(e) => setSearchTk(e.target.value)}
-                  className="pl-6 h-7 w-[140px] text-xs"
-                />
               </div>
             </div>
 
@@ -1502,13 +1426,6 @@ export function RebuildAdmin() {
                 </select>
               </div>
 
-              <Input
-                placeholder="Поиск ролика / заказчика..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-6 w-[150px] text-xs px-2"
-              />
-
               {/* По умолчанию отключено */}
               <label className="flex items-center gap-1 cursor-pointer select-none px-2 py-0.5 rounded border bg-muted/40 text-muted-foreground hover:text-foreground">
                 <input
@@ -1517,15 +1434,6 @@ export function RebuildAdmin() {
                   onChange={(e) => setIncludeBookingsInTk(e.target.checked)}
                 />
                 Учитывать бронь в ТК ({activeBookingsOnDate.length})
-              </label>
-
-              <label className="flex items-center gap-1 cursor-pointer select-none text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={onlyWithAds}
-                  onChange={(e) => setOnlyWithAds(e.target.checked)}
-                />
-                Только ТК с РК
               </label>
 
               <label className="flex items-center gap-1 cursor-pointer select-none text-amber-700 dark:text-amber-400 font-medium">
@@ -1546,39 +1454,13 @@ export function RebuildAdmin() {
                 Предупреждения квот ({stats.overLimitTkCount})
               </label>
             </div>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Сортировка:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="border rounded px-2 py-0.5 bg-background font-medium h-6 text-xs"
-              >
-                <option value="client">По заказчику</option>
-                <option value="type">По типу</option>
-                <option value="format">По формату</option>
-                <option value="status">По статусу</option>
-                <option value="duration">По длительности</option>
-                <option value="name">По названию</option>
-              </select>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-              >
-                <ArrowUpDown className="w-3 h-3 mr-1" />
-                {sortDir === "asc" ? "А→Я" : "Я→А"}
-              </Button>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Верхняя сводка */}
+      {/* Верхняя сводка (4 карточки без «Правило квот ТК») */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
             <div className="text-[11px] text-muted-foreground">Показано ТК</div>
             <div className="text-sm font-bold">
@@ -1617,14 +1499,6 @@ export function RebuildAdmin() {
             </div>
           </div>
 
-          <div className="bg-card border rounded px-3 py-1.5">
-            <div className="text-[11px] text-muted-foreground">Правило квот ТК (180с)</div>
-            <div className="text-[11px] font-semibold mt-0.5 leading-tight">
-              Платно ≤ <strong>{TK_QUOTAS.PAID_MAX}с</strong> • Беспл. без пред. при остатке платного{" "}
-              <strong>&gt;20с</strong>
-            </div>
-          </div>
-
           <div
             className={cn(
               "border rounded px-3 py-1.5",
@@ -1656,7 +1530,7 @@ export function RebuildAdmin() {
             Загрузка расписания...
           </div>
         ) : viewMode === "bookings" ? (
-          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ (с названием РК) */
+          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="px-4 py-3 border-b bg-amber-500/10 flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -2015,7 +1889,6 @@ export function RebuildAdmin() {
                           )}
                         </td>
 
-                        {/* Компактный столбец с кнопкой «Развернуть» */}
                         <td className="px-2.5 py-1">
                           {!tk.hasAnyItems && tk.plannedList.length === 0 ? (
                             <span className="text-[11px] text-muted-foreground">
@@ -2025,7 +1898,6 @@ export function RebuildAdmin() {
                             <div>
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  {/* Зеленая капсула: Опубликовано */}
                                   <span
                                     className={cn(
                                       "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border",
@@ -2046,7 +1918,6 @@ export function RebuildAdmin() {
                                     <strong className="font-mono">{tk.airTotalDuration} сек</strong>
                                   </span>
 
-                                  {/* Синяя капсула: Запланировано */}
                                   <span
                                     className={cn(
                                       "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border",
@@ -2169,7 +2040,7 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : (
-          /* ВИД 2: МАТРИЦА С ЗАКРЕПЛЕННЫМ НИЖНИМ БЛОКОМ ТФУТА (sticky bottom-0) */
+          /* ВИД 2: МАТРИЦА С ЗАКРЕПЛЕННЫМ НИЖНИМ БЛОКОМ */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-auto max-h-[70vh]">
               <table className="w-full text-xs border-collapse min-w-max">
@@ -2270,7 +2141,6 @@ export function RebuildAdmin() {
                   })}
                 </tbody>
 
-                {/* ЗАКРЕПЛЕННЫЙ НИЖНИЙ БЛОК В МАТРИЦЕ */}
                 <tfoot className="sticky bottom-0 z-20 bg-muted/95 border-t-2 shadow-[0_-3px_8px_rgba(0,0,0,0.08)]">
                   <tr className="font-bold text-[11px]">
                     <td className="px-2 py-1.5 border-r sticky left-0 z-30 bg-muted">
