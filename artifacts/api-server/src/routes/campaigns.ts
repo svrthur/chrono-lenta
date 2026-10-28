@@ -108,7 +108,7 @@ router.post("/bookings", async (req, res): Promise<void> => {
     const tkNumbersStr = uniqueScNumbers.join(", ");
 
     if (!campaignName) {
-      res.status(400).json({ error: "Укажите название рекламной кампании" });
+      res.status(400).json({ error: "Укажите название РК" });
       return;
     }
     if (!surname) {
