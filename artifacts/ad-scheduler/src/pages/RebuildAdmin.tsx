@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { format, addDays, subDays } from "date-fns"
 import { ru } from "date-fns/locale"
@@ -58,6 +58,7 @@ type CampaignRow = {
 
 export type BookingRow = {
   id: number
+  campaignName: string
   surname: string
   startDate: string
   endDate: string
@@ -129,7 +130,6 @@ function formatDateTimeRu(iso: string) {
   })
 }
 
-// Расчет приоритетов и предупреждений (оранжевых / красных) для очереди бронирования по принципу FIFO
 export function evaluateBookingsQueue(
   rawBookings: BookingRow[],
   rawCampaigns: CampaignRow[]
@@ -278,10 +278,15 @@ export function RebuildAdmin() {
   const [viewMode, setViewMode] = useState<"list" | "matrix" | "bookings">("list")
   const [bookingDialogOpen, setBookingDialogOpen] = useState<boolean>(false)
 
-  // ПО УМОЛЧАНИЮ ОТКЛЮЧЕНО: коллегам показывается только основной хронометраж
+  // Исправление бага скролла при переключении режима
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" as any })
+  }, [viewMode])
+
+  // ПО УМОЛЧАНИЮ ОТКЛЮЧЕНО: показывать только основной хронометраж
   const [includeBookingsInTk, setIncludeBookingsInTk] = useState<boolean>(false)
 
-  // Раскрытые строки ТК в столбце "Рекламные кампании"
+  // Раскрытие строк в столбце РК
   const [expandedTkSet, setExpandedTkSet] = useState<Set<string>>(new Set())
 
   const toggleExpandTk = (tkNum: string) => {
@@ -293,7 +298,8 @@ export function RebuildAdmin() {
     })
   }
 
-  // Поля формы нового бронирования
+  // Поля формы бронирования (включая название РК)
+  const [bCampaignName, setBCampaignName] = useState<string>("")
   const [bSurname, setBSurname] = useState<string>("")
   const [bStartDate, setBStartDate] = useState<Date | undefined>(undefined)
   const [bEndDate, setBEndDate] = useState<Date | undefined>(undefined)
@@ -334,7 +340,7 @@ export function RebuildAdmin() {
     [rawBookings, rawCampaigns]
   )
 
-  // Проверка введенных ТК в окне бронирования на наличие чужих ТК (не из нашей БД)
+  // Проверка чужих ТК в строке бронирования
   const bParsedTk = useMemo(() => parseAndValidateTkNumbers(bTkNumbers), [bTkNumbers])
   const bSelectedSet = useMemo(() => new Set(bParsedTk.validNumbers), [bParsedTk.validNumbers])
 
@@ -342,7 +348,7 @@ export function RebuildAdmin() {
     setBTkNumbers(bParsedTk.validNumbers.join(", "))
   }
 
-  // Превентивная проверка квот (оранжевые и красные предупреждения) внутри окна Бронирования
+  // Превентивная проверка конфликтов в окне Бронирования
   const draftBookingConflicts = useMemo(() => {
     if (!bStartDate || !bEndDate || !bDuration || !bPayerType || bSelectedSet.size === 0) {
       return []
@@ -353,7 +359,8 @@ export function RebuildAdmin() {
 
     const tempBooking: BookingRow = {
       id: 999999999,
-      surname: bSurname.trim() || "Новая бронь",
+      campaignName: bCampaignName.trim() || "Новая бронь",
+      surname: bSurname.trim() || "Сотрудник",
       startDate: startIso,
       endDate: endIso,
       format: bFormat || "ГМ",
@@ -367,7 +374,7 @@ export function RebuildAdmin() {
     const sim = evaluateBookingsQueue([...rawBookings, tempBooking], rawCampaigns)
     const last = sim[sim.length - 1]
     return last ? last._conflicts : []
-  }, [bStartDate, bEndDate, bDuration, bPayerType, bSelectedSet, bSurname, bFormat, rawBookings, rawCampaigns])
+  }, [bStartDate, bEndDate, bDuration, bPayerType, bSelectedSet, bCampaignName, bSurname, bFormat, rawBookings, rawCampaigns])
 
   const draftRedConflicts = useMemo(
     () => draftBookingConflicts.filter((c) => c.level === "red"),
@@ -391,23 +398,17 @@ export function RebuildAdmin() {
     setBTkNumbers(MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number).join(", "))
   }
 
+  // При выборе формата список ТК НЕ заполняется автоматически
   const handleBFormatChange = (v: string) => {
     setBFormat(v)
-    if (v === "ГМ") fillBTkByFormat("ГМ")
-    else if (v === "СМ") fillBTkByFormat("СМ")
-    else if (v === "ГМ+СМ") fillBTkByFormat("ГМ+СМ")
   }
 
-  const toggleBCityTks = (city: string) => {
+  // Раздельный выбор ТК по городам для ГМ и СМ
+  const toggleCityFormatTks = (city: string, targetFmt: "ГМ" | "СМ") => {
     const next = new Set(bSelectedSet)
-    const cityTks = MASTER_TK_LIST.filter((t) => {
-      if (t.city !== city) return false
-      if (bFormat === "ГМ" || bFormat === "част.ГМ") return t.format === "ГМ"
-      if (bFormat === "СМ" || bFormat === "част.СМ") return t.format === "СМ"
-      return true
-    })
-    const allSelected = cityTks.length > 0 && cityTks.every((t) => next.has(t.number))
-    for (const tk of cityTks) {
+    const matched = MASTER_TK_LIST.filter((t) => t.city === city && t.format === targetFmt)
+    const allSelected = matched.length > 0 && matched.every((t) => next.has(t.number))
+    for (const tk of matched) {
       if (allSelected) next.delete(tk.number)
       else next.add(tk.number)
     }
@@ -441,6 +442,7 @@ export function RebuildAdmin() {
   }, [bFormat, bPickerSearch])
 
   const resetBookingForm = () => {
+    setBCampaignName("")
     setBSurname("")
     setBStartDate(undefined)
     setBEndDate(undefined)
@@ -453,6 +455,9 @@ export function RebuildAdmin() {
   }
 
   const handleSaveBooking = async () => {
+    if (!bCampaignName.trim()) {
+      return toast({ title: "Укажите название РК", variant: "destructive" })
+    }
     if (!bSurname.trim()) {
       return toast({ title: "Укажите фамилию", variant: "destructive" })
     }
@@ -485,6 +490,7 @@ export function RebuildAdmin() {
     setBSaving(true)
     try {
       const body = {
+        campaignName: bCampaignName.trim(),
         surname: bSurname.trim(),
         startDate: format(bStartDate, "yyyy-MM-dd"),
         endDate: format(bEndDate, "yyyy-MM-dd"),
@@ -502,7 +508,7 @@ export function RebuildAdmin() {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || `Ошибка ${res.status}`)
       }
-      toast({ title: "Бронь добавлена в список", variant: "success" })
+      toast({ title: "Бронь успешно добавлена", variant: "success" })
       queryClient.invalidateQueries({ queryKey: ["bookings"] })
       resetBookingForm()
       setBookingDialogOpen(false)
@@ -637,7 +643,6 @@ export function RebuildAdmin() {
     })
   }, [evaluatedBookings, dateIso, campaignTypeFilter, campaignFormatFilter])
 
-  // Расчет загрузки каждого ТК по новой логике предупреждений (ok / orange / red)
   const filteredTkRows = useMemo(() => {
     return MASTER_TK_LIST.map((tk) => {
       const activeList = publishedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
@@ -744,7 +749,7 @@ export function RebuildAdmin() {
   ])
 
   const allExpandableNums = useMemo(
-    () => filteredTkRows.filter((t) => t.hasAnyItems).map((t) => t.number),
+    () => filteredTkRows.filter((t) => t.hasAnyItems || t.plannedList.length > 0).map((t) => t.number),
     [filteredTkRows]
   )
   const areAllExpanded =
@@ -879,6 +884,19 @@ export function RebuildAdmin() {
           </DialogHeader>
 
           <div className="grid gap-3.5 py-2">
+            {/* 1. Название РК */}
+            <div className="grid gap-1.5">
+              <Label>
+                Название РК <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                placeholder="Введите название рекламной кампании"
+                value={bCampaignName}
+                onChange={(e) => setBCampaignName(e.target.value)}
+              />
+            </div>
+
+            {/* 2. Фамилия */}
             <div className="grid gap-1.5">
               <Label>
                 Фамилия <span className="text-destructive">*</span>
@@ -890,6 +908,7 @@ export function RebuildAdmin() {
               />
             </div>
 
+            {/* 3. Даты показа */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>
@@ -949,6 +968,7 @@ export function RebuildAdmin() {
               </div>
             </div>
 
+            {/* 4. Формат, 5. Тип, 6. Хронометраж */}
             <div className="grid grid-cols-3 gap-3">
               <div className="grid gap-1.5">
                 <Label>
@@ -1002,10 +1022,11 @@ export function RebuildAdmin() {
               </div>
             </div>
 
+            {/* 7. Список ТК */}
             <div className="grid gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <Label>
-                  Список ТК ({bSelectedSet.size} наших ТК выбр.){" "}
+                  Список ТК ({bSelectedSet.size} выбр.){" "}
                   <span className="text-destructive">*</span>
                 </Label>
                 <div className="flex items-center gap-1.5 text-xs">
@@ -1050,7 +1071,7 @@ export function RebuildAdmin() {
                 className={cn(bParsedTk.unknownNumbers.length > 0 && "border-destructive")}
               />
 
-              {/* УВЕДОМЛЕНИЕ О ЧУЖИХ ТК, КОТОРЫХ НЕТ В БАЗЕ ДАННЫХ */}
+              {/* Уведомление о чужих ТК */}
               {bParsedTk.unknownNumbers.length > 0 && (
                 <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-center justify-between gap-2">
                   <div className="flex items-start gap-1.5">
@@ -1074,7 +1095,7 @@ export function RebuildAdmin() {
 
               <div className="flex items-center justify-between">
                 <p className="text-[11px] text-muted-foreground">
-                  При выборе ГМ, СМ или ГМ+СМ список ТК подставляется автоматически
+                  Укажите номера ТК вручную или воспользуйтесь кнопками ниже
                 </p>
                 <button
                   type="button"
@@ -1083,36 +1104,58 @@ export function RebuildAdmin() {
                 >
                   {bShowPicker ? (
                     <>
-                      Скрыть список ТК <ChevronUp className="w-3.5 h-3.5" />
+                      Скрыть подбор ТК <ChevronUp className="w-3.5 h-3.5" />
                     </>
                   ) : (
                     <>
-                      Выбрать по городам / адресам <ChevronDown className="w-3.5 h-3.5" />
+                      Выбрать по городам (ГМ / СМ) / адресам <ChevronDown className="w-3.5 h-3.5" />
                     </>
                   )}
                 </button>
               </div>
 
+              {/* Раздельный выбор по городам: ГМ и СМ */}
               {bShowPicker && (
-                <div className="border rounded-md p-2.5 bg-muted/20 space-y-2">
-                  <div className="text-[11px] font-medium text-muted-foreground">
-                    Быстрый выбор по городам:
+                <div className="border rounded-md p-2.5 bg-muted/20 space-y-2.5">
+                  <div className="text-[11px] font-semibold text-muted-foreground">
+                    Быстрый выбор по городам (раздельно для ГМ и СМ):
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {CITIES.map((city) => (
-                      <button
-                        key={city}
-                        type="button"
-                        onClick={() => toggleBCityTks(city)}
-                        className="px-2 py-0.5 text-[11px] rounded border bg-background hover:bg-primary/10 transition-colors"
-                      >
-                        + {city}
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap gap-1.5">
+                    {CITIES.map((city) => {
+                      const hasGm = MASTER_TK_LIST.some((t) => t.city === city && t.format === "ГМ")
+                      const hasSm = MASTER_TK_LIST.some((t) => t.city === city && t.format === "СМ")
+                      return (
+                        <div key={city} className="inline-flex rounded border bg-background overflow-hidden text-[10px]">
+                          <span className="px-1.5 py-0.5 font-semibold text-foreground bg-muted/40 border-r">
+                            {city}
+                          </span>
+                          {hasGm && (
+                            <button
+                              type="button"
+                              onClick={() => toggleCityFormatTks(city, "ГМ")}
+                              className="px-1.5 py-0.5 hover:bg-primary/10 text-primary font-medium border-r"
+                              title={`Выбрать все ГМ в г. ${city}`}
+                            >
+                              + ГМ
+                            </button>
+                          )}
+                          {hasSm && (
+                            <button
+                              type="button"
+                              onClick={() => toggleCityFormatTks(city, "СМ")}
+                              className="px-1.5 py-0.5 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                              title={`Выбрать все СМ в г. ${city}`}
+                            >
+                              + СМ
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
 
                   <Input
-                    placeholder="Поиск ТК по номеру, городу или адресу..."
+                    placeholder="Поиск ТК по номеру или адресу..."
                     value={bPickerSearch}
                     onChange={(e) => setBPickerSearch(e.target.value)}
                     className="h-7 text-xs"
@@ -1141,40 +1184,38 @@ export function RebuildAdmin() {
               )}
             </div>
 
-            {/* КРАСНОЕ ПРЕДУПРЕЖДЕНИЕ (превышен лимит 180с / 125с или в платном осталось 0–5с) */}
+            {/* Красное предупреждение */}
             {draftRedConflicts.length > 0 && (
               <div className="p-2.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300 text-xs space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
-                  Красное предупреждение: критический перегруз хронометража в {draftRedConflicts.length} ТК!
+                  Красное предупреждение: перегруз хронометража в {draftRedConflicts.length} ТК!
                 </div>
                 <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
                   {draftRedConflicts.map((c) => (
                     <div key={c.tkNumber}>
                       • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: {c.reason} (Всего{" "}
                       <strong>{c.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
-                      <strong>{c.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл.{" "}
-                      <strong>{c.freeSec}с</strong>)
+                      <strong>{c.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл. <strong>{c.freeSec}с</strong>)
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* ОРАНЖЕВОЕ ПРЕДУПРЕЖДЕНИЕ (при прогрузке бесплатных в платном осталось 10–20с) */}
+            {/* Оранжевое предупреждение */}
             {draftOrangeConflicts.length > 0 && (
               <div className="p-2.5 rounded-md border border-orange-500/50 bg-orange-500/15 text-orange-800 dark:text-orange-300 text-xs space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-orange-600" />
-                  Оранжевое предупреждение: в {draftOrangeConflicts.length} ТК в платном хронометраже осталось от 10 до 20 сек!
+                  Оранжевое предупреждение в {draftOrangeConflicts.length} ТК (остаток платного 10–20 сек)!
                 </div>
                 <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
                   {draftOrangeConflicts.map((c) => (
                     <div key={c.tkNumber}>
                       • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: {c.reason} (Всего{" "}
                       <strong>{c.totalSec}/{TK_QUOTAS.TOTAL_MAX}с</strong>, Платно{" "}
-                      <strong>{c.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл.{" "}
-                      <strong>{c.freeSec}с</strong>)
+                      <strong>{c.paidSec}/{TK_QUOTAS.PAID_MAX}с</strong>, Беспл. <strong>{c.freeSec}с</strong>)
                     </div>
                   ))}
                 </div>
@@ -1278,7 +1319,7 @@ export function RebuildAdmin() {
                 </Button>
               </div>
 
-              {/* Цветовая дифференциация в переключателе статусов */}
+              {/* Цветовая дифференциация в кнопках статусов */}
               <div className="inline-flex rounded border bg-muted/40 p-0.5 text-xs">
                 <button
                   onClick={() => setStatusFilter("active_and_planned")}
@@ -1468,7 +1509,7 @@ export function RebuildAdmin() {
                 className="h-6 w-[150px] text-xs px-2"
               />
 
-              {/* По умолчанию отключено (false) */}
+              {/* По умолчанию отключено */}
               <label className="flex items-center gap-1 cursor-pointer select-none px-2 py-0.5 rounded border bg-muted/40 text-muted-foreground hover:text-foreground">
                 <input
                   type="checkbox"
@@ -1535,7 +1576,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Верхняя сводка с цветовой дифференциацией */}
+      {/* Верхняя сводка */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
@@ -1608,20 +1649,20 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Основная таблица */}
+      {/* Основная область */}
       <div className="max-w-[1920px] w-full mx-auto px-3 mt-2 flex-1">
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground bg-card border rounded text-xs">
             Загрузка расписания...
           </div>
         ) : viewMode === "bookings" ? (
-          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ */
+          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ (с названием РК) */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="px-4 py-3 border-b bg-amber-500/10 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-bold flex items-center gap-1.5">
                   <BookmarkCheck className="w-4 h-4 text-amber-600" />
-                  Список бронирования (сортировка по времени внесения: кто первым внёс — тот №1)
+                  Список бронирования (очередь по времени внесения: кто первым внёс — тот №1)
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   Оранжевое предупреждение — остаток платного 10–20с; Красное — остаток платного 0–5с или превышен лимит 180с
@@ -1641,24 +1682,25 @@ export function RebuildAdmin() {
               <table className="w-full text-xs border-collapse">
                 <thead className="bg-muted/50 border-b text-[11px] text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left border-r w-[80px]">Очередь</th>
-                    <th className="px-3 py-2 text-left border-r w-[150px]">Дата внесения</th>
-                    <th className="px-3 py-2 text-left border-r w-[150px]">Фамилия</th>
-                    <th className="px-3 py-2 text-left border-r w-[170px]">Даты показа</th>
-                    <th className="px-3 py-2 text-center border-r w-[85px]">Формат</th>
-                    <th className="px-3 py-2 text-center border-r w-[100px]">Тип</th>
-                    <th className="px-3 py-2 text-center border-r w-[95px]">Хронометраж</th>
-                    <th className="px-3 py-2 text-left border-r w-[290px]">
-                      Статус квоты (с учетом приоритета очереди)
+                    <th className="px-3 py-2 text-left border-r w-[75px]">Очередь</th>
+                    <th className="px-3 py-2 text-left border-r w-[140px]">Дата внесения</th>
+                    <th className="px-3 py-2 text-left border-r w-[180px]">Название РК</th>
+                    <th className="px-3 py-2 text-left border-r w-[130px]">Фамилия</th>
+                    <th className="px-3 py-2 text-left border-r w-[160px]">Даты показа</th>
+                    <th className="px-3 py-2 text-center border-r w-[80px]">Формат</th>
+                    <th className="px-3 py-2 text-center border-r w-[90px]">Тип</th>
+                    <th className="px-3 py-2 text-center border-r w-[85px]">Хрон.</th>
+                    <th className="px-3 py-2 text-left border-r w-[280px]">
+                      Статус квоты (с учетом приоритета)
                     </th>
                     <th className="px-3 py-2 text-left border-r">Список ТК</th>
-                    <th className="px-3 py-2 text-center w-[85px]">Действия</th>
+                    <th className="px-3 py-2 text-center w-[80px]">Действия</th>
                   </tr>
                 </thead>
                 <tbody>
                   {evaluatedBookings.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={11} className="p-8 text-center text-muted-foreground">
                         Список бронирования пуст. Нажмите «+ Бронирование», чтобы занять место в очереди.
                       </td>
                     </tr>
@@ -1683,7 +1725,8 @@ export function RebuildAdmin() {
                       <td className="px-3 py-2 border-r font-mono text-[11px] text-muted-foreground whitespace-nowrap">
                         {formatDateTimeRu(b.createdAt)}
                       </td>
-                      <td className="px-3 py-2 border-r font-semibold text-sm">{b.surname}</td>
+                      <td className="px-3 py-2 border-r font-semibold text-sm">{b.campaignName}</td>
+                      <td className="px-3 py-2 border-r font-medium">{b.surname}</td>
                       <td className="px-3 py-2 border-r whitespace-nowrap font-medium">
                         {b.startDate} — {b.endDate}
                       </td>
@@ -1728,7 +1771,7 @@ export function RebuildAdmin() {
                                 : `Оранжевое пред. в ${b._conflicts.length} ТК`}
                             </div>
                             <div className="text-[10px] max-h-16 overflow-y-auto space-y-0.5">
-                              {b._conflicts.slice(0, 4).map((c) => (
+                              {b._conflicts.slice(0, 3).map((c) => (
                                 <div
                                   key={c.tkNumber}
                                   className={cn(
@@ -1740,8 +1783,8 @@ export function RebuildAdmin() {
                                   ТК №{c.tkNumber} ({c.peakDate}): {c.reason}
                                 </div>
                               ))}
-                              {b._conflicts.length > 4 && (
-                                <div>...и еще {b._conflicts.length - 4} ТК</div>
+                              {b._conflicts.length > 3 && (
+                                <div>...и еще {b._conflicts.length - 3} ТК</div>
                               )}
                             </div>
                           </div>
@@ -1753,7 +1796,7 @@ export function RebuildAdmin() {
                           Выбрано ТК: <strong>{b.shoppingCenterNumbers.length}</strong>
                         </div>
                         <div
-                          className="text-[11px] text-muted-foreground max-w-[340px] truncate"
+                          className="text-[11px] text-muted-foreground max-w-[300px] truncate"
                           title={b.tkNumbersRaw}
                         >
                           {b.tkNumbersRaw}
@@ -1777,7 +1820,7 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : viewMode === "list" ? (
-          /* ВИД 1: КОМПАКТНЫЙ СПИСОК ТК С КНОПКОЙ РАЗВЕРНУТЬ И ЦВЕТОВОЙ ДИФФЕРЕНЦИАЦИЕЙ */
+          /* ВИД 1: КОМПАКТНЫЙ СПИСОК ТК С КНОПКОЙ «РАЗВЕРНУТЬ» */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
@@ -1847,7 +1890,6 @@ export function RebuildAdmin() {
                             : "hover:bg-muted/20"
                         )}
                       >
-                        {/* Ячейка № ТК: красная при red, оранжевая при orange */}
                         <td
                           className={cn(
                             "px-2 py-1 font-bold border-r whitespace-nowrap",
@@ -1883,7 +1925,6 @@ export function RebuildAdmin() {
                           {tk.address}
                         </td>
 
-                        {/* Суммарно */}
                         <td
                           className={cn(
                             "px-2 py-1 text-center border-r whitespace-nowrap font-mono font-bold",
@@ -1908,7 +1949,6 @@ export function RebuildAdmin() {
                           )}
                         </td>
 
-                        {/* Платно + остаток */}
                         <td
                           className={cn(
                             "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
@@ -1938,7 +1978,6 @@ export function RebuildAdmin() {
                           </div>
                         </td>
 
-                        {/* Бесплатно (с новой логикой оранжевого/красного предупреждения) */}
                         <td
                           className={cn(
                             "px-2 py-1 text-center border-r whitespace-nowrap font-mono",
@@ -1962,7 +2001,6 @@ export function RebuildAdmin() {
                           )}
                         </td>
 
-                        {/* Освободится */}
                         <td className="px-2 py-1 text-center border-r whitespace-nowrap">
                           {tk.earliestEndDate ? (
                             <span
@@ -1977,7 +2015,7 @@ export function RebuildAdmin() {
                           )}
                         </td>
 
-                        {/* КОМПАКТНЫЙ СТОЛБЕЦ РЕКЛАМНЫХ КАМПАНИЙ С КНОПКОЙ РАЗВЕРНУТЬ */}
+                        {/* Компактный столбец с кнопкой «Развернуть» */}
                         <td className="px-2.5 py-1">
                           {!tk.hasAnyItems && tk.plannedList.length === 0 ? (
                             <span className="text-[11px] text-muted-foreground">
@@ -1985,10 +2023,9 @@ export function RebuildAdmin() {
                             </span>
                           ) : (
                             <div>
-                              {/* Компактная строка-сводка с цветовой дифференциацией */}
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  {/* Зеленая капсула ОПУБЛИКОВАНО */}
+                                  {/* Зеленая капсула: Опубликовано */}
                                   <span
                                     className={cn(
                                       "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border",
@@ -2009,7 +2046,7 @@ export function RebuildAdmin() {
                                     <strong className="font-mono">{tk.airTotalDuration} сек</strong>
                                   </span>
 
-                                  {/* Синяя капсула ЗАПЛАНИРОВАНО */}
+                                  {/* Синяя капсула: Запланировано */}
                                   <span
                                     className={cn(
                                       "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border",
@@ -2030,7 +2067,6 @@ export function RebuildAdmin() {
                                     <strong className="font-mono">{tk.plannedDuration} сек</strong>
                                   </span>
 
-                                  {/* Если включен учет броней */}
                                   {includeBookingsInTk && tk.bookingsInTk.length > 0 && (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/40 font-semibold">
                                       бронь: {tk.bookingsInTk.length} на {tk.bookedTotalDuration} сек
@@ -2055,7 +2091,6 @@ export function RebuildAdmin() {
                                 </button>
                               </div>
 
-                              {/* Развернутый подробный список с четким цветовым разделением */}
                               {isExpanded && (
                                 <div className="mt-2 pt-2 border-t flex flex-wrap gap-1.5">
                                   {tk.shownList.map((camp) => {
@@ -2110,7 +2145,8 @@ export function RebuildAdmin() {
                                         <span className="px-1 rounded bg-amber-600 text-white text-[10px] font-bold">
                                           бронь №{b._rank}
                                         </span>
-                                        <span className="font-semibold">{b.surname}</span>
+                                        <span className="font-semibold">{b.campaignName}</span>
+                                        <span className="text-muted-foreground">({b.surname})</span>
                                         <span className="font-mono font-bold">{b.duration}с</span>
                                         <span className="text-[10px] px-1 rounded bg-background/80">
                                           {b.format}
@@ -2133,11 +2169,11 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : (
-          /* ВИД 2: МАТРИЦА С ЦВЕТОВОЙ ДИФФЕРЕНЦИАЦИЕЙ ОПУБЛИКОВАНО / ЗАПЛАНИРОВАНО */
+          /* ВИД 2: МАТРИЦА С ЗАКРЕПЛЕННЫМ НИЖНИМ БЛОКОМ ТФУТА (sticky bottom-0) */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
-            <div className="overflow-auto max-h-[78vh]">
+            <div className="overflow-auto max-h-[70vh]">
               <table className="w-full text-xs border-collapse min-w-max">
-                <thead className="bg-muted/60 sticky top-0 z-20">
+                <thead className="bg-muted/80 sticky top-0 z-20">
                   <tr>
                     <th className="px-2 py-1.5 text-left border-b border-r sticky left-0 z-30 bg-muted min-w-[280px]">
                       Кампания / Заказчик / Статус на {format(selectedDate, "dd.MM.yyyy")}
@@ -2232,16 +2268,19 @@ export function RebuildAdmin() {
                       </tr>
                     )
                   })}
+                </tbody>
 
-                  <tr className="bg-muted/40 font-bold border-t-2 text-[11px]">
-                    <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted">
+                {/* ЗАКРЕПЛЕННЫЙ НИЖНИЙ БЛОК В МАТРИЦЕ */}
+                <tfoot className="sticky bottom-0 z-20 bg-muted/95 border-t-2 shadow-[0_-3px_8px_rgba(0,0,0,0.08)]">
+                  <tr className="font-bold text-[11px]">
+                    <td className="px-2 py-1.5 border-r sticky left-0 z-30 bg-muted">
                       Суммарно в эфире (лимит {TK_QUOTAS.TOTAL_MAX}с)
                     </td>
                     {filteredTkRows.map((tk) => (
                       <td
                         key={tk.number}
                         className={cn(
-                          "px-1 py-1 border-r text-center font-mono",
+                          "px-1 py-1.5 border-r text-center font-mono bg-muted",
                           tk.alertLevel === "red" && "bg-red-600 text-white",
                           tk.alertLevel === "orange" && "bg-orange-500 text-white"
                         )}
@@ -2251,15 +2290,15 @@ export function RebuildAdmin() {
                     ))}
                   </tr>
 
-                  <tr className="bg-muted/20 text-[10px]">
-                    <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted font-medium">
+                  <tr className="text-[10px] bg-muted/90">
+                    <td className="px-2 py-1 border-r sticky left-0 z-30 bg-muted font-medium">
                       Платно (лимит {TK_QUOTAS.PAID_MAX}с)
                     </td>
                     {filteredTkRows.map((tk) => (
                       <td
                         key={tk.number}
                         className={cn(
-                          "px-1 py-1 border-r text-center font-mono",
+                          "px-1 py-1 border-r text-center font-mono bg-muted",
                           tk.isOverPaid
                             ? "bg-red-600 text-white font-bold"
                             : "text-emerald-700 dark:text-emerald-400"
@@ -2270,15 +2309,15 @@ export function RebuildAdmin() {
                     ))}
                   </tr>
 
-                  <tr className="bg-muted/20 text-[10px] border-b">
-                    <td className="px-2 py-1 border-r sticky left-0 z-10 bg-muted font-medium">
+                  <tr className="text-[10px] bg-muted/90">
+                    <td className="px-2 py-1 border-r sticky left-0 z-30 bg-muted font-medium">
                       Бесплатно (30%)
                     </td>
                     {filteredTkRows.map((tk) => (
                       <td
                         key={tk.number}
                         className={cn(
-                          "px-1 py-1 border-r text-center font-mono",
+                          "px-1 py-1 border-r text-center font-mono bg-muted",
                           tk.freeDuration > 0 && tk.paidRemainingSec <= 5
                             ? "bg-red-600 text-white font-bold"
                             : tk.freeDuration > 0 && tk.paidRemainingSec <= 20
@@ -2290,7 +2329,7 @@ export function RebuildAdmin() {
                       </td>
                     ))}
                   </tr>
-                </tbody>
+                </tfoot>
               </table>
             </div>
           </div>
