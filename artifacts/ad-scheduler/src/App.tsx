@@ -9,7 +9,16 @@ import { Input } from "@/components/ui/input"
 import { MonitorPlay, Settings, Lock, Unlock, KeyRound } from "lucide-react"
 import { MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 
-const queryClient = new QueryClient()
+// Настраиваем авто-повтор запросов, чтобы при холодном старте сервера данные всегда догружались
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 6,
+      retryDelay: 4000,
+      refetchOnWindowFocus: true,
+    },
+  },
+})
 
 type ActivePage = "admin" | "board"
 
