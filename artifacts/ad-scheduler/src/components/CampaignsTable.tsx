@@ -204,7 +204,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     })
   }, [rows, dateIso, in3DaysIso])
 
-  // Подсчет опубликованных роликов (РК) за выбранный период (отдельно для ГМ и отдельно для СМ)
   const periodPublishedStats = useMemo(() => {
     const start = periodStartIso <= periodEndIso ? periodStartIso : periodEndIso
     const end = periodStartIso <= periodEndIso ? periodEndIso : periodStartIso
@@ -303,7 +302,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         }}
       />
 
-      {/* Блок подсчета опубликованных роликов и РК за выбранный период (только для Админа) */}
+      {/* Блок подсчета опубликованных роликов и РК за выбранный период */}
       <div className="bg-muted/20 border rounded-md px-3 py-2.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="font-semibold flex items-center gap-1.5 text-foreground">
@@ -380,7 +379,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       </div>
 
-      {/* Очередь бронирования от коллег с расчетом приоритета и конфликтов квот */}
+      {/* Очередь бронирования от коллег с Названием РК */}
       {evaluatedBookings.length > 0 && (
         <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
           <div className="text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
@@ -392,12 +391,13 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               <thead className="bg-muted/40 border-b text-[11px] text-muted-foreground">
                 <tr>
                   <th className="p-2 text-left">Очередь</th>
+                  <th className="p-2 text-left">Название РК</th>
                   <th className="p-2 text-left">Фамилия</th>
                   <th className="p-2 text-left">Даты показа</th>
                   <th className="p-2 text-left">Формат</th>
                   <th className="p-2 text-left">Тип</th>
                   <th className="p-2 text-left">Хрон.</th>
-                  <th className="p-2 text-left">Статус квоты (FIFO)</th>
+                  <th className="p-2 text-left">Статус квоты</th>
                   <th className="p-2 text-left">Список ТК</th>
                   <th className="p-2 text-left">Действия</th>
                 </tr>
@@ -406,31 +406,28 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
                 {evaluatedBookings.map((b) => (
                   <tr key={b.id} className="border-b hover:bg-muted/20">
                     <td className="p-2 font-bold text-amber-700 dark:text-amber-400">№{b._rank}</td>
-                    <td className="p-2 font-semibold">{b.surname}</td>
+                    <td className="p-2 font-semibold text-primary">{b.campaignName}</td>
+                    <td className="p-2 font-medium">{b.surname}</td>
                     <td className="p-2">{b.startDate} — {b.endDate}</td>
                     <td className="p-2">{b.format}</td>
                     <td className="p-2">{b.payerType}</td>
                     <td className="p-2 font-mono font-bold">{b.duration} сек</td>
                     <td className="p-2">
-                      {!b._hasConflict ? (
+                      {b._alertLevel === "ok" ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-semibold text-[11px]">
                           <ShieldCheck className="w-3 h-3" /> В квоте
                         </span>
+                      ) : b._alertLevel === "red" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white font-bold text-[11px]">
+                          <AlertTriangle className="w-3 h-3" /> Красный перегруз
+                        </span>
                       ) : (
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white font-bold text-[11px]"
-                          title={b._conflicts
-                            .map(
-                              (c) =>
-                                `ТК №${c.tkNumber} (${c.peakDate}): ${c.totalSec}/${TK_QUOTAS.TOTAL_MAX}с`
-                            )
-                            .join("; ")}
-                        >
-                          <AlertTriangle className="w-3 h-3" /> Перегруз в {b._conflicts.length} ТК
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-500 text-white font-bold text-[11px]">
+                          <AlertTriangle className="w-3 h-3" /> Оранжевый остаток
                         </span>
                       )}
                     </td>
-                    <td className="p-2 max-w-[220px] truncate" title={b.tkNumbersRaw}>
+                    <td className="p-2 max-w-[200px] truncate" title={b.tkNumbersRaw}>
                       {b.shoppingCenterNumbers.length} ТК ({b.tkNumbersRaw})
                     </td>
                     <td className="p-2">
@@ -440,7 +437,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
                             type="button"
                             onClick={() =>
                               onDuplicate({
-                                name: `Бронь: ${b.surname}`,
+                                name: b.campaignName || `Бронь: ${b.surname}`,
                                 startDate: b.startDate,
                                 endDate: b.endDate,
                                 client: b.surname,
