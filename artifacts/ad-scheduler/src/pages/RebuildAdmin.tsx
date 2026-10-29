@@ -21,14 +21,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react"
-import {
-  CITIES,
-  MASTER_TK_LIST,
-  TK_QUOTAS,
-  QuotaAlertLevel,
-  evaluateTkQuota,
-  parseAndValidateTkNumbers,
-} from "@/lib/constants"
+import { CITIES, MASTER_TK_LIST, TK_QUOTAS } from "@/lib/constants"
 import { getApiUrl } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,8 +31,98 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { useToast } from "@/hooks/use-toast"
-import { DURATION_OPTIONS, FORMAT_OPTIONS } from "@/components/AddCampaignDialog"
 import { cn } from "@/lib/utils"
+
+const LOCAL_DURATION_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+const LOCAL_FORMAT_OPTIONS = ["ГМ", "СМ", "ГМ+СМ", "част.ГМ", "част.СМ"] as const
+const MASTER_TK_SET = new Set(MASTER_TK_LIST.map((t) => t.number))
+
+export type QuotaAlertLevel = "ok" | "orange" | "red"
+
+export function parseAndValidateTkNumbers(rawInput: string) {
+  const tokens = rawInput
+    .split(/[,\s;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const uniqueTokens = Array.from(new Set(tokens))
+  const validNumbers = uniqueTokens.filter((n) => MASTER_TK_SET.has(n))
+  const unknownNumbers = uniqueTokens.filter((n) => !MASTER_TK_SET.has(n))
+  return { allEntered: uniqueTokens, validNumbers, unknownNumbers }
+}
+
+export function evaluateTkQuota(paidSec: number, freeSec: number) {
+  const totalSec = paidSec + freeSec
+  const paidRemainingSec = Math.min(
+    TK_QUOTAS.PAID_MAX - paidSec,
+    TK_QUOTAS.TOTAL_MAX - totalSec
+  )
+  const isOverTotal = totalSec > TK_QUOTAS.TOTAL_MAX
+  const isOverPaid = paidSec > TK_QUOTAS.PAID_MAX
+
+  if (isOverTotal) {
+    return {
+      level: "red" as QuotaAlertLevel,
+      totalSec,
+      paidSec,
+      freeSec,
+      paidRemainingSec,
+      isOverTotal,
+      isOverPaid,
+      reason: `Превышен суммарный лимит 180с (${totalSec}с)`,
+    }
+  }
+
+  if (isOverPaid) {
+    return {
+      level: "red" as QuotaAlertLevel,
+      totalSec,
+      paidSec,
+      freeSec,
+      paidRemainingSec,
+      isOverTotal,
+      isOverPaid,
+      reason: `Превышен платный лимит 125с (${paidSec}с)`,
+    }
+  }
+
+  if (freeSec > 0) {
+    if (paidRemainingSec <= 5) {
+      return {
+        level: "red" as QuotaAlertLevel,
+        totalSec,
+        paidSec,
+        freeSec,
+        paidRemainingSec,
+        isOverTotal,
+        isOverPaid,
+        reason: `В платном хронометраже осталось ${Math.max(0, paidRemainingSec)}с (0–5с)`,
+      }
+    }
+    if (paidRemainingSec >= 10 && paidRemainingSec <= 20) {
+      return {
+        level: "orange" as QuotaAlertLevel,
+        totalSec,
+        paidSec,
+        freeSec,
+        paidRemainingSec,
+        isOverTotal,
+        isOverPaid,
+        reason: `В платном хронометраже осталось ${paidRemainingSec}с (10–20с)`,
+      }
+    }
+  }
+
+  return {
+    level: "ok" as QuotaAlertLevel,
+    totalSec,
+    paidSec,
+    freeSec,
+    paidRemainingSec,
+    isOverTotal,
+    isOverPaid,
+    reason: "В норме",
+  }
+}
 
 type CampaignRow = {
   id: number
@@ -56,7 +139,7 @@ type CampaignRow = {
 
 export type BookingRow = {
   id: number
-  campaignName: string
+  campaignName?: string
   surname: string
   startDate: string
   endDate: string
@@ -247,6 +330,7 @@ export function evaluateBookingsQueue(
 
     evaluated.push({
       ...b,
+      campaignName: b.campaignName || b.surname,
       _rank: rank,
       _isPaid: bIsPaid,
       _scSet: bScSet,
@@ -280,10 +364,7 @@ export function RebuildAdmin() {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" as any })
   }, [viewMode])
 
-  // По умолчанию отключено: показывать только основной хронометраж
   const [includeBookingsInTk, setIncludeBookingsInTk] = useState<boolean>(false)
-
-  // Раскрытие строк в столбце РК
   const [expandedTkSet, setExpandedTkSet] = useState<Set<string>>(new Set())
 
   const toggleExpandTk = (tkNum: string) => {
@@ -295,7 +376,6 @@ export function RebuildAdmin() {
     })
   }
 
-  // Поля формы бронирования
   const [bCampaignName, setBCampaignName] = useState<string>("")
   const [bSurname, setBSurname] = useState<string>("")
   const [bStartDate, setBStartDate] = useState<Date | undefined>(undefined)
@@ -308,7 +388,6 @@ export function RebuildAdmin() {
   const [bPickerSearch, setBPickerSearch] = useState<string>("")
   const [bSaving, setBSaving] = useState<boolean>(false)
 
-  // Фильтры ТК и РК
   const [tkFormatFilter, setTkFormatFilter] = useState<"ALL" | "ГМ" | "СМ">("ALL")
   const [cityFilter, setCityFilter] = useState<string>("")
   const [onlyOverLimit, setOnlyOverLimit] = useState<boolean>(false)
@@ -325,7 +404,6 @@ export function RebuildAdmin() {
     [rawBookings, rawCampaigns]
   )
 
-  // Проверка чужих ТК в строке бронирования
   const bParsedTk = useMemo(() => parseAndValidateTkNumbers(bTkNumbers), [bTkNumbers])
   const bSelectedSet = useMemo(() => new Set(bParsedTk.validNumbers), [bParsedTk.validNumbers])
 
@@ -333,7 +411,6 @@ export function RebuildAdmin() {
     setBTkNumbers(bParsedTk.validNumbers.join(", "))
   }
 
-  // Превентивная проверка конфликтов в окне Бронирования
   const draftBookingConflicts = useMemo(() => {
     if (!bStartDate || !bEndDate || !bDuration || !bPayerType || bSelectedSet.size === 0) {
       return []
@@ -548,7 +625,6 @@ export function RebuildAdmin() {
     [enrichedCampaigns]
   )
 
-  // ВСЕ реально опубликованные и запланированные РК на выбранную дату (для неизменного расчета хронометража ТК)
   const allPublishedOnDate = useMemo(
     () =>
       enrichedCampaigns
@@ -564,7 +640,6 @@ export function RebuildAdmin() {
     [enrichedCampaigns]
   )
 
-  // Все брони на выбранную дату (для точного расчета хронометража ТК при включенной галочке «Учитывать бронь»)
   const allBookingsOnDate = useMemo(
     () => evaluatedBookings.filter((b) => b.startDate <= dateIso && b.endDate >= dateIso),
     [evaluatedBookings, dateIso]
@@ -572,7 +647,6 @@ export function RebuildAdmin() {
 
   const hasCampaignFilter = Boolean(campaignTypeFilter || campaignFormatFilter || clientFilter)
 
-  // Кампании с учетом выбранных фильтров (Тип / Формат РК / Заказчик)
   const baseFilteredCampaigns = useMemo(() => {
     const list = enrichedCampaigns.filter((c) => {
       if (campaignTypeFilter && c._type !== campaignTypeFilter) return false
@@ -601,7 +675,6 @@ export function RebuildAdmin() {
 
   const filteredTkRows = useMemo(() => {
     return MASTER_TK_LIST.map((tk) => {
-      // Фактическая загрузка экрана считается ВСЕГДА по всем активным РК на выбранную дату
       const activeList = allPublishedOnDate.filter((c) => c._scNumbersSet.has(tk.number))
       const plannedList = allPlannedOnDate.filter((c) => c._scNumbersSet.has(tk.number))
       const shownList = displayedCampaigns.filter((c) => c._scNumbersSet.has(tk.number))
@@ -911,7 +984,7 @@ export function RebuildAdmin() {
                     <SelectValue placeholder="Выбрать" />
                   </SelectTrigger>
                   <SelectContent>
-                    {FORMAT_OPTIONS.map((fmt) => (
+                    {LOCAL_FORMAT_OPTIONS.map((fmt) => (
                       <SelectItem key={fmt} value={fmt}>
                         {fmt}
                       </SelectItem>
@@ -944,7 +1017,7 @@ export function RebuildAdmin() {
                     <SelectValue placeholder="Выбрать" />
                   </SelectTrigger>
                   <SelectContent>
-                    {DURATION_OPTIONS.map((sec) => (
+                    {LOCAL_DURATION_OPTIONS.map((sec) => (
                       <SelectItem key={sec} value={String(sec)}>
                         {sec} сек
                       </SelectItem>
@@ -1360,7 +1433,6 @@ export function RebuildAdmin() {
                 </select>
               </div>
 
-              {/* По умолчанию отключено */}
               <label className="flex items-center gap-1 cursor-pointer select-none px-2 py-0.5 rounded border bg-muted/40 text-muted-foreground hover:text-foreground">
                 <input
                   type="checkbox"
@@ -1383,7 +1455,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Верхняя сводка (4 карточки) */}
+      {/* Верхняя сводка */}
       <div className="max-w-[1920px] w-full mx-auto px-3 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="bg-card border rounded px-3 py-1.5">
@@ -1455,7 +1527,6 @@ export function RebuildAdmin() {
             Загрузка расписания...
           </div>
         ) : viewMode === "bookings" ? (
-          /* ВИД 3: СПИСОК БРОНИРОВАНИЯ */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="px-4 py-3 border-b bg-amber-500/10 flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -1524,7 +1595,9 @@ export function RebuildAdmin() {
                       <td className="px-3 py-2 border-r font-mono text-[11px] text-muted-foreground whitespace-nowrap">
                         {formatDateTimeRu(b.createdAt)}
                       </td>
-                      <td className="px-3 py-2 border-r font-semibold text-sm">{b.campaignName}</td>
+                      <td className="px-3 py-2 border-r font-semibold text-sm">
+                        {b.campaignName || "—"}
+                      </td>
                       <td className="px-3 py-2 border-r font-medium">{b.surname}</td>
                       <td className="px-3 py-2 border-r whitespace-nowrap font-medium">
                         {b.startDate} — {b.endDate}
@@ -1619,7 +1692,6 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : viewMode === "list" ? (
-          /* ВИД 1: КОМПАКТНЫЙ СПИСОК ТК С КНОПКОЙ «РАЗВЕРНУТЬ» */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
@@ -1941,7 +2013,9 @@ export function RebuildAdmin() {
                                         <span className="px-1 rounded bg-amber-600 text-white text-[10px] font-bold">
                                           бронь №{b._rank}
                                         </span>
-                                        <span className="font-semibold">{b.campaignName}</span>
+                                        <span className="font-semibold">
+                                          {b.campaignName || b.surname}
+                                        </span>
                                         <span className="text-muted-foreground">({b.surname})</span>
                                         <span className="font-mono font-bold">{b.duration}с</span>
                                         <span className="text-[10px] px-1 rounded bg-background/80">
@@ -1965,7 +2039,6 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : (
-          /* ВИД 2: МАТРИЦА С ЗАКРЕПЛЕННЫМ НИЖНИМ БЛОКОМ */
           <div className="bg-card border rounded shadow-2xs overflow-hidden">
             <div className="overflow-auto max-h-[70vh]">
               <table className="w-full text-xs border-collapse min-w-max">
