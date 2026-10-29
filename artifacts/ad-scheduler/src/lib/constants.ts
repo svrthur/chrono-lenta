@@ -214,7 +214,6 @@ export const MASTER_TK_LIST: TkDirectoryItem[] = [
 
 export const MASTER_TK_SET = new Set(MASTER_TK_LIST.map((t) => t.number))
 
-// Разбор введенной строки номеров ТК на валидные (наши) и неизвестные (чужие)
 export function parseAndValidateTkNumbers(rawInput: string): {
   allEntered: string[]
   validNumbers: string[]
@@ -247,11 +246,6 @@ export interface QuotaEvaluation {
   reason: string
 }
 
-// Новая бизнес-логика оценки хронометража ТК:
-// 1. Суммарно > 180с или Платно > 125с -> КРАСНОЕ предупреждение ("red")
-// 2. Бесплатные ролики можно грузить без предупреждений, если в платном хронометраже свободно > 20 сек (>= 25с)
-// 3. Если при прогрузке бесплатных роликов в платном осталось от 10 до 20 сек (10, 15, 20с) -> ОРАНЖЕВОЕ предупреждение ("orange")
-// 4. Если при прогрузке бесплатных роликов в платном осталось от 0 до 5 сек (0, 5с) -> КРАСНОЕ предупреждение ("red")
 export function evaluateTkQuota(paidSec: number, freeSec: number): QuotaEvaluation {
   const totalSec = paidSec + freeSec
   const paidRemainingSec = Math.min(
