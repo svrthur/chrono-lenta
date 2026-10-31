@@ -10,6 +10,15 @@ import {
 } from "@workspace/api-zod";
 import { broadcastDataUpdated } from "../lib/sse";
 
+// Защита сервера от падения (Exited with status 1) при сбросе соединений базой Neon
+process.on("uncaughtException", (err) => {
+  console.error("[KeepAlive] Перехвачена ошибка процесса:", err?.message || err);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+  console.error("[KeepAlive] Перехвачена ошибка промиса:", reason?.message || reason);
+});
+
 const router: IRouter = Router();
 
 const ALLOWED_FORMATS = ["ГМ", "СМ", "част.ГМ", "част.СМ", "ГМ+СМ"];
