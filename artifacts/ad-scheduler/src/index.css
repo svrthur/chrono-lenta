@@ -2,75 +2,132 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --background: 220 25% 97%;
+    --foreground: 240 10% 6%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 240 10% 6%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    --popover-foreground: 240 10% 6%;
     --primary: 211 100% 50%;
-    --primary-foreground: 0 0% 98%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 241 82% 53%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 220 16% 93%;
+    --muted-foreground: 220 9% 43%;
+    --accent: 220 18% 94%;
+    --accent-foreground: 240 6% 10%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --ring: 211 100% 50%;
     --radius: 1rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 230 20% 6%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 6%;
+    --card: 230 18% 9%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 6%;
+    --popover: 230 18% 9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 211 100% 52%;
-    --primary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
+    --primary: 211 100% 55%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 230 14% 15%;
+    --muted-foreground: 220 10% 65%;
+    --accent: 230 14% 16%;
     --accent-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 211 100% 52%;
+    --border: 230 12% 18%;
+    --input: 230 12% 18%;
+    --ring: 211 100% 55%;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Эффекты iOS / macOS Liquid Glass */
+/* Пространственный фон iOS 27 / macOS 27 для реального преломления через стекло */
+.apple-spatial-bg {
+  background-color: #f2f5fa;
+  background-image:
+    radial-gradient(at 12% 8%, rgba(56, 189, 248, 0.16) 0px, transparent 48%),
+    radial-gradient(at 88% 12%, rgba(99, 102, 241, 0.14) 0px, transparent 50%),
+    radial-gradient(at 52% 88%, rgba(16, 185, 129, 0.10) 0px, transparent 55%);
+  background-attachment: fixed;
+}
+
+.dark .apple-spatial-bg {
+  background-color: #0b0d13;
+  background-image:
+    radial-gradient(at 15% 10%, rgba(14, 165, 233, 0.15) 0px, transparent 50%),
+    radial-gradient(at 85% 15%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+    radial-gradient(at 50% 90%, rgba(16, 185, 129, 0.08) 0px, transparent 55%);
+  background-attachment: fixed;
+}
+
+/* Основная стеклянная панель Liquid Glass */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.05), inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow:
+    0 12px 32px -10px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
 }
 
 .dark .glass-panel {
-  background: rgba(28, 28, 30, 0.7);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  background: rgba(24, 26, 34, 0.58);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow:
+    0 16px 36px -10px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
 }
 
+/* Плавающая верхняя панель macOS */
 .glass-header {
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 4px 20px -4px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.75);
 }
 
 .dark .glass-header {
-  background: rgba(30, 30, 32, 0.65);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(20, 22, 30, 0.58);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    0 4px 20px -4px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
 }
 
-/* iOS плавный скролл */
+/* Капсульные переключатели и инпуты */
+.glass-pill {
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow:
+    0 2px 6px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+}
+
+.dark .glass-pill {
+  background: rgba(36, 39, 50, 0.55);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Тонкий скроллбар macOS */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -79,9 +136,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(120, 120, 128, 0.2);
+  background: rgba(120, 120, 128, 0.24);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(120, 120, 128, 0.4);
+  background: rgba(120, 120, 128, 0.42);
 }
