@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
@@ -22,29 +23,25 @@
 
   .dark {
     --background: 230 22% 6%;
-    --foreground: 210 20% 96%;
+    --foreground: 0 0% 96%;
     --card: 230 18% 9%;
-    --card-foreground: 210 20% 96%;
+    --card-foreground: 0 0% 96%;
     --popover: 230 18% 10%;
-    --popover-foreground: 210 20% 96%;
-    --primary: 211 100% 58%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 211 100% 55%;
     --primary-foreground: 0 0% 100%;
-    --muted: 230 15% 15%;
-    --muted-foreground: 220 12% 68%;
-    --accent: 230 15% 17%;
-    --accent-foreground: 0 0% 98%;
-    --border: 230 14% 20%;
-    --input: 230 14% 20%;
-    --ring: 211 100% 58%;
+    --muted: 230 14% 15%;
+    --muted-foreground: 220 10% 65%;
+    --accent: 230 14% 16%;
+    --accent-foreground: 0 0% 96%;
+    --border: 230 12% 18%;
+    --input: 230 12% 18%;
+    --ring: 211 100% 55%;
+    color-scheme: dark;
   }
 
   html {
     font-size: 15px;
-    color-scheme: light;
-  }
-
-  html.dark {
-    color-scheme: dark;
   }
 
   body {
@@ -62,27 +59,25 @@
     transition: background-color 0.25s ease, color 0.2s ease;
   }
 
-  html.dark body {
-    background-color: #090b11;
+  .dark body {
+    background-color: #0b0d14;
     background-image:
       radial-gradient(at 10% 8%, rgba(14, 165, 233, 0.18) 0px, transparent 48%),
-      radial-gradient(at 88% 12%, rgba(99, 102, 241, 0.18) 0px, transparent 48%),
-      radial-gradient(at 50% 55%, rgba(139, 92, 246, 0.10) 0px, transparent 55%),
-      radial-gradient(at 20% 90%, rgba(16, 185, 129, 0.12) 0px, transparent 50%);
-    background-attachment: fixed;
+      radial-gradient(at 90% 12%, rgba(99, 102, 241, 0.18) 0px, transparent 48%),
+      radial-gradient(at 50% 50%, rgba(139, 92, 246, 0.08) 0px, transparent 55%),
+      radial-gradient(at 20% 90%, rgba(16, 185, 129, 0.10) 0px, transparent 50%);
   }
 }
 
-/* Пространственный фон для всех экранов */
 .min-h-screen,
 .apple-spatial-bg {
   background: transparent !important;
 }
 
-/* Светлое и темное полупрозрачное стекло Apple Liquid Glass */
+/* Полупрозрачное стекло Apple Liquid Glass (День / Ночь) */
 .glass-panel,
 .bg-card {
-  background: rgba(255, 255, 255, 0.58) !important;
+  background: rgba(255, 255, 255, 0.56) !important;
   backdrop-filter: blur(28px) saturate(200%) !important;
   -webkit-backdrop-filter: blur(28px) saturate(200%) !important;
   border: 1px solid rgba(255, 255, 255, 0.75) !important;
@@ -93,9 +88,7 @@
 
 .dark .glass-panel,
 .dark .bg-card {
-  background: rgba(20, 23, 33, 0.65) !important;
-  backdrop-filter: blur(28px) saturate(190%) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+  background: rgba(22, 25, 35, 0.62) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow:
     0 14px 34px -10px rgba(0, 0, 0, 0.55),
@@ -105,7 +98,7 @@
 /* Плавающая шапка */
 header,
 .glass-header {
-  background: rgba(255, 255, 255, 0.48) !important;
+  background: rgba(255, 255, 255, 0.46) !important;
   backdrop-filter: blur(26px) saturate(210%) !important;
   -webkit-backdrop-filter: blur(26px) saturate(210%) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.65) !important;
@@ -116,24 +109,21 @@ header,
 
 .dark header,
 .dark .glass-header {
-  background: rgba(15, 18, 26, 0.62) !important;
-  backdrop-filter: blur(26px) saturate(200%) !important;
-  -webkit-backdrop-filter: blur(26px) saturate(200%) !important;
+  background: rgba(16, 18, 26, 0.58) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow:
     0 4px 20px -4px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
 }
 
-/* Капсульные кнопки, селекты и инпуты (День / Ночь) */
+/* Капсульные кнопки, селекты и инпуты */
 .glass-pill,
 select,
 input[type="text"],
 input[type="date"],
-input[type="search"],
-input[type="password"] {
-  background: rgba(255, 255, 255, 0.64) !important;
-  color: hsl(var(--foreground));
+input[type="search"] {
+  background: rgba(255, 255, 255, 0.62) !important;
+  color: hsl(var(--foreground)) !important;
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   border: 1px solid rgba(15, 23, 42, 0.1) !important;
@@ -147,19 +137,18 @@ input[type="password"] {
 .dark select,
 .dark input[type="text"],
 .dark input[type="date"],
-.dark input[type="search"],
-.dark input[type="password"] {
-  background: rgba(32, 36, 50, 0.68) !important;
-  color: #f1f5f9 !important;
+.dark input[type="search"] {
+  background: rgba(34, 38, 52, 0.65) !important;
+  color: #f4f4f6 !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.1) !important;
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
 }
 
 .dark select option {
-  background-color: #161924;
-  color: #f1f5f9;
+  background-color: #181b26;
+  color: #f4f4f6;
 }
 
 /* Таблицы (День / Ночь) */
@@ -173,8 +162,7 @@ thead {
 }
 
 .dark thead {
-  background: rgba(26, 30, 42, 0.65) !important;
-  backdrop-filter: blur(18px) saturate(180%);
+  background: rgba(28, 31, 44, 0.65) !important;
 }
 
 tbody tr {
@@ -198,9 +186,9 @@ tbody tr:hover {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(120, 120, 128, 0.28);
+  background: rgba(120, 120, 128, 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(120, 120, 128, 0.48);
+  background: rgba(120, 120, 128, 0.45);
 }
