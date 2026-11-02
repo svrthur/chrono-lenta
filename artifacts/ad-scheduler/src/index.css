@@ -22,31 +22,36 @@
 
   .dark {
     --background: 230 22% 6%;
-    --foreground: 0 0% 98%;
+    --foreground: 210 20% 96%;
     --card: 230 18% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 230 18% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 211 100% 55%;
+    --card-foreground: 210 20% 96%;
+    --popover: 230 18% 10%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 211 100% 58%;
     --primary-foreground: 0 0% 100%;
-    --muted: 230 14% 15%;
-    --muted-foreground: 220 10% 65%;
-    --accent: 230 14% 16%;
+    --muted: 230 15% 15%;
+    --muted-foreground: 220 12% 68%;
+    --accent: 230 15% 17%;
     --accent-foreground: 0 0% 98%;
-    --border: 230 12% 18%;
-    --input: 230 12% 18%;
-    --ring: 211 100% 55%;
+    --border: 230 14% 20%;
+    --input: 230 14% 20%;
+    --ring: 211 100% 58%;
   }
 
   html {
-    /* Делает весь интерфейс на 6% компактнее и аккуратнее на обоих экранах */
     font-size: 15px;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 
   body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color: hsl(var(--foreground));
     background-color: #eef2f9;
     background-image:
       radial-gradient(at 8% 5%, rgba(56, 189, 248, 0.25) 0px, transparent 45%),
@@ -54,19 +59,30 @@
       radial-gradient(at 50% 50%, rgba(168, 85, 247, 0.10) 0px, transparent 55%),
       radial-gradient(at 20% 90%, rgba(16, 185, 129, 0.16) 0px, transparent 50%);
     background-attachment: fixed;
+    transition: background-color 0.25s ease, color 0.2s ease;
+  }
+
+  html.dark body {
+    background-color: #090b11;
+    background-image:
+      radial-gradient(at 10% 8%, rgba(14, 165, 233, 0.18) 0px, transparent 48%),
+      radial-gradient(at 88% 12%, rgba(99, 102, 241, 0.18) 0px, transparent 48%),
+      radial-gradient(at 50% 55%, rgba(139, 92, 246, 0.10) 0px, transparent 55%),
+      radial-gradient(at 20% 90%, rgba(16, 185, 129, 0.12) 0px, transparent 50%);
+    background-attachment: fixed;
   }
 }
 
-/* Пространственный фон для всех экранов (включая Админ) */
+/* Пространственный фон для всех экранов */
 .min-h-screen,
 .apple-spatial-bg {
   background: transparent !important;
 }
 
-/* Настоящее полупрозрачное стекло Apple Liquid Glass */
+/* Светлое и темное полупрозрачное стекло Apple Liquid Glass */
 .glass-panel,
 .bg-card {
-  background: rgba(255, 255, 255, 0.56) !important;
+  background: rgba(255, 255, 255, 0.58) !important;
   backdrop-filter: blur(28px) saturate(200%) !important;
   -webkit-backdrop-filter: blur(28px) saturate(200%) !important;
   border: 1px solid rgba(255, 255, 255, 0.75) !important;
@@ -77,17 +93,19 @@
 
 .dark .glass-panel,
 .dark .bg-card {
-  background: rgba(22, 24, 32, 0.56) !important;
+  background: rgba(20, 23, 33, 0.65) !important;
+  backdrop-filter: blur(28px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow:
-    0 14px 34px -10px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.14) !important;
+    0 14px 34px -10px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.12) !important;
 }
 
-/* Ультра-прозрачная плавающая шапка (при скролле сквозь нее видно цветные плашки) */
+/* Плавающая шапка */
 header,
 .glass-header {
-  background: rgba(255, 255, 255, 0.46) !important;
+  background: rgba(255, 255, 255, 0.48) !important;
   backdrop-filter: blur(26px) saturate(210%) !important;
   -webkit-backdrop-filter: blur(26px) saturate(210%) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.65) !important;
@@ -98,17 +116,24 @@ header,
 
 .dark header,
 .dark .glass-header {
-  background: rgba(18, 20, 28, 0.52) !important;
+  background: rgba(15, 18, 26, 0.62) !important;
+  backdrop-filter: blur(26px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(200%) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow:
+    0 4px 20px -4px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
 }
 
-/* Капсульные кнопки, селекты и инпуты (применяется и к экрану Админ) */
+/* Капсульные кнопки, селекты и инпуты (День / Ночь) */
 .glass-pill,
 select,
 input[type="text"],
 input[type="date"],
-input[type="search"] {
-  background: rgba(255, 255, 255, 0.62) !important;
+input[type="search"],
+input[type="password"] {
+  background: rgba(255, 255, 255, 0.64) !important;
+  color: hsl(var(--foreground));
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   border: 1px solid rgba(15, 23, 42, 0.1) !important;
@@ -118,13 +143,37 @@ input[type="search"] {
     inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
 }
 
-/* Компактные таблицы и единый стиль для экрана Админ */
+.dark .glass-pill,
+.dark select,
+.dark input[type="text"],
+.dark input[type="date"],
+.dark input[type="search"],
+.dark input[type="password"] {
+  background: rgba(32, 36, 50, 0.68) !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.dark select option {
+  background-color: #161924;
+  color: #f1f5f9;
+}
+
+/* Таблицы (День / Ночь) */
 table {
   font-size: 11px !important;
 }
 
 thead {
   background: rgba(255, 255, 255, 0.45) !important;
+  backdrop-filter: blur(18px) saturate(180%);
+}
+
+.dark thead {
+  background: rgba(26, 30, 42, 0.65) !important;
   backdrop-filter: blur(18px) saturate(180%);
 }
 
@@ -136,6 +185,10 @@ tbody tr:hover {
   background-color: rgba(255, 255, 255, 0.55) !important;
 }
 
+.dark tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
 /* Тонкий скроллбар macOS */
 ::-webkit-scrollbar {
   width: 5px;
@@ -145,9 +198,9 @@ tbody tr:hover {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(120, 120, 128, 0.25);
+  background: rgba(120, 120, 128, 0.28);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(120, 120, 128, 0.45);
+  background: rgba(120, 120, 128, 0.48);
 }
