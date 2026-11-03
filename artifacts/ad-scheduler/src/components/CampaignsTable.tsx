@@ -25,7 +25,11 @@ import { MASTER_TK_LIST } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { BookingRow, evaluateBookingsQueue } from "@/pages/RebuildAdmin"
+import {
+  BookingRow,
+  evaluateBookingsQueue,
+  highlightActiveNavButton,
+} from "@/pages/RebuildAdmin"
 import { cn } from "@/lib/utils"
 
 type Campaign = {
@@ -124,6 +128,12 @@ interface CampaignsTableProps {
 
 export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const queryClient = useQueryClient()
+
+  // Выделяем кнопку «Админ (Загрузка данных)» в верхней навигации
+  useEffect(() => {
+    highlightActiveNavButton("admin")
+  }, [])
+
   const { data: rows = [], isLoading, isError, error, refetch } = useQuery<Campaign[]>({
     queryKey: ["campaigns"],
     queryFn: fetchCampaigns,
@@ -147,7 +157,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const [filterFormat, setFilterFormat] = useState<string>("")
   const [onlyExpiringSoon, setOnlyExpiringSoon] = useState<boolean>(false)
 
-  // Корзина (хранение 30 дней) и быстрый откат
   const [showTrash, setShowTrash] = useState<boolean>(false)
   const [trashItems, setTrashItems] = useState<TrashCampaignItem[]>(() => loadTrashFromStorage())
   const [lastBatchTrashIds, setLastBatchTrashIds] = useState<string[]>([])
@@ -161,7 +170,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     })
   }
 
-  // При смене фильтров сбрасываем выделение, чтобы скрытые строки никогда не удалились случайно
   useEffect(() => {
     setSelected({})
   }, [filterStatus, filterType, filterClient, filterFormat, onlyExpiringSoon, selectedDate])
@@ -258,13 +266,11 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
       .filter((r) => (onlyExpiringSoon ? r._isExpiringSoon : true))
   }, [normalizedRows, filterStatus, filterType, filterClient, filterFormat, onlyExpiringSoon])
 
-  // Все завершённые кампании в базе (на выбранную дату)
   const allCompletedRows = useMemo(
     () => normalizedRows.filter((r) => r._statusLabel === "завершён"),
     [normalizedRows]
   )
 
-  // ИСПРАВЛЕНИЕ BUG-02: Выделение работает строго по текущему отфильтрованному списку (filteredRows)
   const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
 
   const selectAllFiltered = () => {
@@ -277,7 +283,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
 
   const clearAll = () => setSelected({})
 
-  // Учитываем только те выбранные строки, которые видны в текущем отфильтрованном списке
   const selectedFilteredRows = useMemo(
     () => filteredRows.filter((r) => !!selected[r.id]),
     [filteredRows, selected]
@@ -364,7 +369,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     }
   }
 
-  // Отдельная функция: Удалить ВСЕ завершённые кампании (и только их)
   const handleDeleteAllCompleted = async () => {
     const targetCompleted =
       filterStatus === "завершён" && selectedCompletedRows.length > 0
@@ -395,7 +399,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     }
   }
 
-  // Восстановление кампаний из корзины обратно в базу данных
   const restoreTrashItems = async (itemsToRestore: TrashCampaignItem[]) => {
     if (itemsToRestore.length === 0 || isRestoring) return
     setIsRestoring(true)
@@ -534,7 +537,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   }
 
   return (
-    <div className="space-y-2.5 text-[10.5px]">
+    <div className="h-[calc(100vh-125px)] overflow-hidden flex flex-col gap-2 text-[10.5px]">
       <EditCampaignDialog
         campaignId={editingId}
         open={!!editingId}
@@ -543,9 +546,9 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         }}
       />
 
-      {/* Плашка мгновенной отмены удаления (Undo) */}
+      {/* ЗАКРЕПЛЕННЫЕ ВЕРХНИЕ БЛОКИ (shrink-0 — остаются на месте) */}
       {lastBatchTrashIds.length > 0 && (
-        <div className="glass-panel rounded-2xl px-3.5 py-2 border border-amber-500/40 bg-amber-500/15 flex flex-wrap items-center justify-between gap-2">
+        <div className="glass-panel shrink-0 rounded-2xl px-3.5 py-1.5 border border-amber-500/40 bg-amber-500/15 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[11px] font-medium text-amber-900 dark:text-amber-200">
             <ArchiveRestore className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>
@@ -573,9 +576,8 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       )}
 
-      {/* 1. Компактная стеклянная панель: Статистика за период + Фильтры */}
-      <div className="glass-panel rounded-2xl px-3 py-2 space-y-2">
-        {/* Верхняя строка: Опубликовано за период */}
+      {/* 1. Закрепленная стеклянная панель: Статистика за период + Фильтры */}
+      <div className="glass-panel shrink-0 rounded-2xl px-3 py-2 space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-black/[0.06] dark:border-white/[0.08]">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-semibold flex items-center gap-1 text-foreground text-[11px]">
@@ -658,7 +660,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
           </div>
         </div>
 
-        {/* Нижняя строка: Компактные однострочные фильтры реестра */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="flex items-center gap-1">
@@ -785,7 +786,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* Счётчик выделенных кампаний и выделенных в статусе Завершён */}
             <span className="px-2.5 py-0.5 rounded-full glass-pill text-[10px] text-muted-foreground">
               Выбрано: <strong className="text-foreground">{selectedFilteredRows.length}</strong> из {filteredRows.length}
               {selectedCompletedRows.length > 0 && (
@@ -795,7 +795,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               )}
             </span>
 
-            {/* Удаление выбранных в текущем фильтре */}
             {selectedFilteredRows.length > 0 && (
               <Button
                 variant="destructive"
@@ -807,7 +806,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               </Button>
             )}
 
-            {/* Отдельная кнопка: Удалить все завершённые РК */}
             {allCompletedRows.length > 0 && (
               <Button
                 type="button"
@@ -851,7 +849,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               Excel
             </Button>
 
-            {/* Кнопка Корзины (30 дней) */}
             <Button
               type="button"
               variant={showTrash ? "default" : "outline"}
@@ -870,148 +867,18 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       </div>
 
-      {/* Модуль Корзины (хранение 30 дней с возможностью восстановления) */}
-      {showTrash && (
-        <div className="glass-panel rounded-2xl overflow-hidden border border-primary/40">
-          <div className="px-3.5 py-2 bg-primary/10 border-b border-black/[0.06] dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-[11px] font-bold flex items-center gap-1.5 text-foreground">
-                <ArchiveRestore className="w-3.5 h-3.5 text-primary" />
-                Корзина удалённых кампаний ({trashItems.length}) — хранение 30 дней
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                При восстановлении кампания возвращается в базу со всеми своими ТК, датами и хронометражем
-              </p>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {trashItems.length > 0 && (
-                <>
-                  <Button
-                    size="sm"
-                    onClick={() => restoreTrashItems(trashItems)}
-                    disabled={isRestoring}
-                    className="h-6 px-2.5 text-[10px] rounded-full gap-1"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    {isRestoring ? "Восстановление..." : `Восстановить все (${trashItems.length})`}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={handleEmptyTrash}
-                    className="h-6 px-2.5 text-[10px] rounded-full"
-                  >
-                    Очистить корзину
-                  </Button>
-                </>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setShowTrash(false)}
-                className="h-6 px-2 text-[10px] rounded-full"
-              >
-                Закрыть
-              </Button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-[10.5px] border-collapse">
-              <thead className="border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
-                <tr>
-                  <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Название РК</th>
-                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Статус при удалении</th>
-                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Период показа</th>
-                  <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Заказчик</th>
-                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Хрон.</th>
-                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Формат / Тип</th>
-                  <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
-                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Хранение</th>
-                  <th className="px-2.5 py-1 text-right">Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trashItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                      Корзина пуста. Удалённые кампании хранятся здесь в течение 30 дней.
-                    </td>
-                  </tr>
-                ) : (
-                  trashItems.map((item) => (
-                    <tr
-                      key={item.trashId}
-                      className="border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04]"
-                    >
-                      <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-semibold">
-                        {item.name}
-                      </td>
-                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
-                        {renderStatusBadge(item.statusLabelAtDelete, false)}
-                      </td>
-                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] font-mono text-[10px] whitespace-nowrap">
-                        {item.startDate} — {item.endDate}
-                      </td>
-                      <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06]">
-                        {item.client}
-                      </td>
-                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] font-mono font-bold text-primary">
-                        {item.duration} сек
-                      </td>
-                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
-                        {item.formatLabel} • {item.typeLabel}
-                      </td>
-                      <td
-                        className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] max-w-[220px] truncate"
-                        title={item.tkListStr}
-                      >
-                        <strong>{item.shoppingCenterNumbers.length} ТК:</strong> {item.tkListStr}
-                      </td>
-                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap text-[10px] text-amber-700 dark:text-amber-400 font-medium">
-                        Осталось {getDaysRemainingInTrash(item.deletedAt)} дн.
-                      </td>
-                      <td className="px-2.5 py-1 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={isRestoring}
-                            onClick={() => restoreTrashItems([item])}
-                            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold hover:bg-emerald-500/25"
-                          >
-                            <RotateCcw className="w-2.5 h-2.5" />
-                            Восстановить
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handlePermanentDeleteTrashItem(item.trashId)}
-                            className="text-[10px] text-red-600 hover:underline"
-                          >
-                            Навсегда
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Компактная очередь бронирования от коллег */}
-      {evaluatedBookings.length > 0 && (
-        <div className="glass-panel rounded-2xl overflow-hidden border border-amber-500/35">
-          <div className="px-3 py-1.5 bg-amber-500/10 border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between">
-            <div className="text-[11px] font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+      {/* 2. Закрепленная очередь бронирования от коллег (компактная) */}
+      {evaluatedBookings.length > 0 && !showTrash && (
+        <div className="glass-panel shrink-0 rounded-2xl overflow-hidden border border-amber-500/35">
+          <div className="px-3 py-1 bg-amber-500/10 border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between">
+            <div className="text-[10.5px] font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
               <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" />
               Очередь бронирования от коллег ({evaluatedBookings.length}):
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="max-h-28 overflow-auto">
             <table className="w-full text-[10.5px] border-collapse">
-              <thead className="border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
                 <tr>
                   <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[58px]">Очередь</th>
                   <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Название РК</th>
@@ -1131,7 +998,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
       )}
 
       {isError && (
-        <div className="p-2.5 rounded-2xl border border-destructive/40 bg-destructive/10 text-destructive text-xs flex items-center justify-between">
+        <div className="p-2.5 shrink-0 rounded-2xl border border-destructive/40 bg-destructive/10 text-destructive text-xs flex items-center justify-between">
           <span>Ошибка загрузки кампаний: {(error as Error)?.message || "Сервер недоступен"}</span>
           <Button variant="outline" size="sm" className="h-6 text-xs rounded-full" onClick={() => refetch()}>
             Повторить
@@ -1139,163 +1006,292 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       )}
 
-      {/* 3. Основной реестр рекламных кампаний в стеклянной капсуле */}
-      <div className="glass-panel rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[10.5px] border-collapse">
-            <thead className="border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
-              <tr>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[32px]">
-                  <input
-                    type="checkbox"
-                    checked={isAllFilteredSelected}
-                    onChange={(e) => (e.target.checked ? selectAllFiltered() : clearAll())}
-                    className="rounded scale-90"
-                    title="Выбрать все кампании в текущем отфильтрованном списке"
-                  />
-                </th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[38px]">#</th>
-                <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Название</th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[125px]">Статус</th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[88px]">Дата старта</th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[95px]">Дата оконч.</th>
-                <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[135px]">Заказчик</th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[75px]">Хрон.</th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[65px]">Формат</th>
-                <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[85px]">Тип</th>
-                <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
-                <th className="px-2.5 py-1.5 text-right w-[195px]">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={12} className="p-6 text-center text-muted-foreground">
-                    Загрузка данных...
-                  </td>
-                </tr>
+      {/* 3. ПРОКРУЧИВАЕМОЕ ОКНО С ДАННЫМИ (Корзина ИЛИ основной реестр кампаний) */}
+      {showTrash ? (
+        <div className="glass-panel rounded-2xl overflow-hidden border border-primary/40 flex-1 min-h-0 flex flex-col">
+          <div className="px-3.5 py-2 shrink-0 bg-primary/10 border-b border-black/[0.06] dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[11px] font-bold flex items-center gap-1.5 text-foreground">
+                <ArchiveRestore className="w-3.5 h-3.5 text-primary" />
+                Корзина удалённых кампаний ({trashItems.length}) — хранение 30 дней
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                При восстановлении кампания возвращается в базу со всеми своими ТК, датами и хронометражем
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {trashItems.length > 0 && (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => restoreTrashItems(trashItems)}
+                    disabled={isRestoring}
+                    className="h-6 px-2.5 text-[10px] rounded-full gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    {isRestoring ? "Восстановление..." : `Восстановить все (${trashItems.length})`}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleEmptyTrash}
+                    className="h-6 px-2.5 text-[10px] rounded-full"
+                  >
+                    Очистить корзину
+                  </Button>
+                </>
               )}
-              {!isLoading && filteredRows.length === 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowTrash(false)}
+                className="h-6 px-2 text-[10px] rounded-full"
+              >
+                Вернуться к списку РК
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-auto">
+            <table className="w-full text-[10.5px] border-collapse">
+              <thead className="sticky top-0 z-20 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
                 <tr>
-                  <td colSpan={12} className="p-6 text-center text-muted-foreground">
-                    Нет рекламных кампаний по выбранным фильтрам
-                  </td>
+                  <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Название РК</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Статус при удалении</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Период показа</th>
+                  <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Заказчик</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Хрон.</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Формат / Тип</th>
+                  <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Хранение</th>
+                  <th className="px-2.5 py-1.5 text-right">Действия</th>
                 </tr>
-              )}
-              {filteredRows.map((r, idx) => (
-                <tr
-                  key={r.id}
-                  className={cn(
-                    "border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04] transition-colors align-middle",
-                    selected[r.id] && "bg-primary/10 dark:bg-primary/15"
-                  )}
-                >
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
+              </thead>
+              <tbody>
+                {trashItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-muted-foreground">
+                      Корзина пуста. Удалённые кампании хранятся здесь в течение 30 дней.
+                    </td>
+                  </tr>
+                ) : (
+                  trashItems.map((item) => (
+                    <tr
+                      key={item.trashId}
+                      className="border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04]"
+                    >
+                      <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-semibold">
+                        {item.name}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
+                        {renderStatusBadge(item.statusLabelAtDelete, false)}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] font-mono text-[10px] whitespace-nowrap">
+                        {item.startDate} — {item.endDate}
+                      </td>
+                      <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06]">
+                        {item.client}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] font-mono font-bold text-primary">
+                        {item.duration} сек
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
+                        {item.formatLabel} • {item.typeLabel}
+                      </td>
+                      <td
+                        className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] max-w-[220px] truncate"
+                        title={item.tkListStr}
+                      >
+                        <strong>{item.shoppingCenterNumbers.length} ТК:</strong> {item.tkListStr}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                        Осталось {getDaysRemainingInTrash(item.deletedAt)} дн.
+                      </td>
+                      <td className="px-2.5 py-1 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={isRestoring}
+                            onClick={() => restoreTrashItems([item])}
+                            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold hover:bg-emerald-500/25"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            Восстановить
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePermanentDeleteTrashItem(item.trashId)}
+                            className="text-[10px] text-red-600 hover:underline"
+                          >
+                            Навсегда
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-panel rounded-2xl overflow-hidden flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 overflow-auto">
+            <table className="w-full text-[10.5px] border-collapse">
+              <thead className="sticky top-0 z-20 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground shadow-2xs">
+                <tr>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[32px]">
                     <input
                       type="checkbox"
-                      checked={!!selected[r.id]}
-                      onChange={() => toggle(r.id)}
+                      checked={isAllFilteredSelected}
+                      onChange={(e) => (e.target.checked ? selectAllFiltered() : clearAll())}
                       className="rounded scale-90"
+                      title="Выбрать все кампании в текущем отфильтрованном списке"
                     />
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] text-muted-foreground font-mono">
-                    {idx + 1}
-                  </td>
-                  <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-semibold">
-                    {r.name}
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
-                    {renderStatusBadge(r._statusLabel, r._isExpiringSoon)}
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap font-mono text-[10px]">
-                    {r.startDate}
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap font-mono text-[10px]">
-                    {r.endDate}
-                  </td>
-                  <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-medium truncate max-w-[135px]">
-                    {r.client}
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap font-mono font-bold text-primary">
-                    {r.duration} сек
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
-                    <span className="px-1.5 py-0.2 rounded-full bg-black/[0.05] dark:bg-white/[0.08] font-semibold text-[9.5px]">
-                      {r._formatLabel}
-                    </span>
-                  </td>
-                  <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
-                    <span
-                      className={cn(
-                        "px-1.5 py-0.2 rounded-full font-semibold text-[9.5px]",
-                        r._isPaid
-                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                          : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                      )}
-                    >
-                      {r._typeLabel}
-                    </span>
-                  </td>
-                  <td
-                    className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] max-w-[240px] truncate"
-                    title={r._tkListStr}
-                  >
-                    {r._scCount > 0 ? (
-                      <>
-                        <strong className="mr-1">{r._scCount} ТК:</strong>
-                        <span className="text-muted-foreground">{r._tkListStr}</span>
-                      </>
-                    ) : (
-                      "—"
+                  </th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[38px]">#</th>
+                  <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Название</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[125px]">Статус</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[88px]">Дата старта</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[95px]">Дата оконч.</th>
+                  <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[135px]">Заказчик</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[75px]">Хрон.</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[65px]">Формат</th>
+                  <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[85px]">Тип</th>
+                  <th className="px-2.5 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
+                  <th className="px-2.5 py-1.5 text-right w-[195px]">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading && (
+                  <tr>
+                    <td colSpan={12} className="p-6 text-center text-muted-foreground">
+                      Загрузка данных...
+                    </td>
+                  </tr>
+                )}
+                {!isLoading && filteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={12} className="p-6 text-center text-muted-foreground">
+                      Нет рекламных кампаний по выбранным фильтрам
+                    </td>
+                  </tr>
+                )}
+                {filteredRows.map((r, idx) => (
+                  <tr
+                    key={r.id}
+                    className={cn(
+                      "border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04] transition-colors align-middle",
+                      selected[r.id] && "bg-primary/10 dark:bg-primary/15"
                     )}
-                  </td>
-                  <td className="px-2.5 py-1 text-right whitespace-nowrap">
-                    <div className="inline-flex gap-2 items-center">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline font-medium"
-                        onClick={() => setEditingId(r.id)}
+                  >
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[r.id]}
+                        onChange={() => toggle(r.id)}
+                        className="rounded scale-90"
+                      />
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] text-muted-foreground font-mono">
+                      {idx + 1}
+                    </td>
+                    <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-semibold">
+                      {r.name}
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
+                      {renderStatusBadge(r._statusLabel, r._isExpiringSoon)}
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap font-mono text-[10px]">
+                      {r.startDate}
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap font-mono text-[10px]">
+                      {r.endDate}
+                    </td>
+                    <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-medium truncate max-w-[135px]">
+                      {r.client}
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap font-mono font-bold text-primary">
+                      {r.duration} сек
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
+                      <span className="px-1.5 py-0.2 rounded-full bg-black/[0.05] dark:bg-white/[0.08] font-semibold text-[9.5px]">
+                        {r._formatLabel}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
+                      <span
+                        className={cn(
+                          "px-1.5 py-0.2 rounded-full font-semibold text-[9.5px]",
+                          r._isPaid
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                            : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                        )}
                       >
-                        <Pencil className="w-2.5 h-2.5" />
-                        Ред.
-                      </button>
-                      {onDuplicate && (
+                        {r._typeLabel}
+                      </span>
+                    </td>
+                    <td
+                      className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] max-w-[240px] truncate"
+                      title={r._tkListStr}
+                    >
+                      {r._scCount > 0 ? (
+                        <>
+                          <strong className="mr-1">{r._scCount} ТК:</strong>
+                          <span className="text-muted-foreground">{r._tkListStr}</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-2.5 py-1 text-right whitespace-nowrap">
+                      <div className="inline-flex gap-2 items-center">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
-                          onClick={() =>
-                            onDuplicate({
-                              name: `${r.name} (копия)`,
-                              startDate: r.startDate,
-                              endDate: r.endDate,
-                              client: r.client,
-                              duration: r.duration,
-                              format: r._formatLabel === "—" ? "ГМ" : r._formatLabel,
-                              type: r._isPaid ? "Платник" : "Не платник",
-                              shoppingCenterNumbers: r._tkListStr,
-                            })
-                          }
-                          title="Создать копию этой кампании"
+                          className="inline-flex items-center gap-0.5 text-[10px] text-primary hover:underline font-medium"
+                          onClick={() => setEditingId(r.id)}
                         >
-                          <Copy className="w-2.5 h-2.5" /> Копия
+                          <Pencil className="w-2.5 h-2.5" />
+                          Ред.
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-0.5 text-[10px] text-red-600 hover:underline font-medium"
-                        onClick={() => handleDelete(r.id)}
-                      >
-                        <Trash2 className="w-2.5 h-2.5" />
-                        Удалить
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {onDuplicate && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
+                            onClick={() =>
+                              onDuplicate({
+                                name: `${r.name} (копия)`,
+                                startDate: r.startDate,
+                                endDate: r.endDate,
+                                client: r.client,
+                                duration: r.duration,
+                                format: r._formatLabel === "—" ? "ГМ" : r._formatLabel,
+                                type: r._isPaid ? "Платник" : "Не платник",
+                                shoppingCenterNumbers: r._tkListStr,
+                              })
+                            }
+                            title="Создать копию этой кампании"
+                          >
+                            <Copy className="w-2.5 h-2.5" /> Копия
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 text-[10px] text-red-600 hover:underline font-medium"
+                          onClick={() => handleDelete(r.id)}
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                          Удалить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
