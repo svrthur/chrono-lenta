@@ -121,13 +121,10 @@ export default function EditCampaignDialog({ open, onOpenChange, campaignId }: P
     }
     const nums = MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number)
     set("shoppingCenterNumbers", nums.join(", "))
-  }
+}
 
   const handleFormatChange = (v: string) => {
     set("format", v)
-    if (v === "ГМ") fillTkByFormat("ГМ")
-    else if (v === "СМ") fillTkByFormat("СМ")
-    else if (v === "ГМ+СМ") fillTkByFormat("ГМ+СМ")
   }
 
   const toggleCityTks = (city: string) => {
