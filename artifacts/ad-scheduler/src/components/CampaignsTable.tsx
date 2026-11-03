@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { format, addDays, subDays, startOfMonth, endOfMonth } from "date-fns"
 import { ru } from "date-fns/locale"
@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   Pencil,
+  RotateCcw,
+  ArchiveRestore,
 } from "lucide-react"
 import EditCampaignDialog from "./EditCampaignDialog"
 import { getApiUrl } from "@/lib/api"
@@ -40,6 +42,59 @@ type Campaign = {
 }
 
 type StatusLabel = "опубликовано" | "запланировано" | "завершён"
+
+type TrashCampaignItem = {
+  trashId: string
+  originalId: number
+  name: string
+  client: string
+  duration: number
+  status: string
+  tkType: string
+  startDate: string
+  endDate: string
+  note: string | null
+  isPaid: boolean
+  formatLabel: string
+  typeLabel: string
+  statusLabelAtDelete: StatusLabel
+  shoppingCenterNumbers: string[]
+  tkListStr: string
+  deletedAt: string
+}
+
+const TRASH_STORAGE_KEY = "chrono-lenta-trash-v1"
+const TRASH_RETENTION_DAYS = 30
+const TRASH_RETENTION_MS = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000
+
+function loadTrashFromStorage(): TrashCampaignItem[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = localStorage.getItem(TRASH_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as TrashCampaignItem[]
+    const now = Date.now()
+    const valid = parsed.filter((item) => {
+      const t = new Date(item.deletedAt).getTime()
+      return !Number.isNaN(t) && now - t <= TRASH_RETENTION_MS
+    })
+    if (valid.length !== parsed.length) {
+      localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(valid))
+    }
+    return valid
+  } catch {
+    return []
+  }
+}
+
+function saveTrashToStorage(items: TrashCampaignItem[]) {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(items))
+  } catch (e) {
+    console.error("Failed to save trash:", e)
+  }
+}
 
 const GM_NUMBERS_SET = new Set(
   MASTER_TK_LIST.filter((t) => t.format === "ГМ").map((t) => t.number)
@@ -92,6 +147,25 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const [filterFormat, setFilterFormat] = useState<string>("")
   const [onlyExpiringSoon, setOnlyExpiringSoon] = useState<boolean>(false)
 
+  // Корзина (хранение 30 дней) и быстрый откат
+  const [showTrash, setShowTrash] = useState<boolean>(false)
+  const [trashItems, setTrashItems] = useState<TrashCampaignItem[]>(() => loadTrashFromStorage())
+  const [lastBatchTrashIds, setLastBatchTrashIds] = useState<string[]>([])
+  const [isRestoring, setIsRestoring] = useState<boolean>(false)
+
+  const updateTrash = (updater: (prev: TrashCampaignItem[]) => TrashCampaignItem[]) => {
+    setTrashItems((prev) => {
+      const next = updater(prev)
+      saveTrashToStorage(next)
+      return next
+    })
+  }
+
+  // При смене фильтров сбрасываем выделение, чтобы скрытые строки никогда не удалились случайно
+  useEffect(() => {
+    setSelected({})
+  }, [filterStatus, filterType, filterClient, filterFormat, onlyExpiringSoon, selectedDate])
+
   const dateIso = format(selectedDate, "yyyy-MM-dd")
   const in3DaysIso = format(addDays(selectedDate, 3), "yyyy-MM-dd")
   const periodStartIso = format(periodStart, "yyyy-MM-dd")
@@ -101,56 +175,6 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     () => evaluateBookingsQueue(bookings, rows),
     [bookings, rows]
   )
-
-  const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
-  const selectAll = () => {
-    const all: Record<number, boolean> = {}
-    rows.forEach((r) => (all[r.id] = true))
-    setSelected(all)
-  }
-  const clearAll = () => setSelected({})
-
-  const selectedIds = Object.entries(selected)
-    .filter(([, v]) => v)
-    .map(([k]) => Number(k))
-
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("Удалить кампанию? Это действие необратимо.")) return
-    try {
-      const res = await fetch(getApiUrl(`/api/campaigns/${id}`), { method: "DELETE" })
-      if (!res.ok) throw new Error("Удаление не удалось")
-      queryClient.invalidateQueries()
-    } catch (err) {
-      window.alert(String(err))
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-    if (!window.confirm(`Удалить выбранные кампании (${selectedIds.length} шт.)?`)) return
-    try {
-      const res = await fetch(getApiUrl("/api/campaigns/bulk-delete"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: selectedIds }),
-      })
-      if (!res.ok) throw new Error("Ошибка массового удаления")
-      clearAll()
-      queryClient.invalidateQueries()
-    } catch (err) {
-      window.alert(String(err))
-    }
-  }
-
-  const handleDeleteBooking = async (id: number) => {
-    if (!window.confirm("Удалить эту бронь из очереди?")) return
-    try {
-      await fetch(getApiUrl(`/api/bookings/${id}`), { method: "DELETE" })
-      queryClient.invalidateQueries({ queryKey: ["bookings"] })
-    } catch (err) {
-      window.alert(String(err))
-    }
-  }
 
   const clients = Array.from(new Set(rows.map((r) => r.client))).filter(Boolean).sort()
 
@@ -197,6 +221,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         _isPaid: Boolean(isPaid),
         _typeLabel: typeLabel,
         _formatLabel: formatLabel,
+        _scNums: scNums,
         _scCount: scNums.length,
         _tkListStr: tkListStr,
         _isGm: isGm,
@@ -224,12 +249,218 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     }
   }, [normalizedRows, periodStartIso, periodEndIso, filterClient, filterType])
 
-  const filteredRows = normalizedRows
-    .filter((r) => (filterStatus ? r._statusLabel === filterStatus : true))
-    .filter((r) => (filterType ? r._typeLabel === filterType : true))
-    .filter((r) => (filterClient ? r.client === filterClient : true))
-    .filter((r) => (filterFormat ? r._formatLabel === filterFormat : true))
-    .filter((r) => (onlyExpiringSoon ? r._isExpiringSoon : true))
+  const filteredRows = useMemo(() => {
+    return normalizedRows
+      .filter((r) => (filterStatus ? r._statusLabel === filterStatus : true))
+      .filter((r) => (filterType ? r._typeLabel === filterType : true))
+      .filter((r) => (filterClient ? r.client === filterClient : true))
+      .filter((r) => (filterFormat ? r._formatLabel === filterFormat : true))
+      .filter((r) => (onlyExpiringSoon ? r._isExpiringSoon : true))
+  }, [normalizedRows, filterStatus, filterType, filterClient, filterFormat, onlyExpiringSoon])
+
+  // Все завершённые кампании в базе (на выбранную дату)
+  const allCompletedRows = useMemo(
+    () => normalizedRows.filter((r) => r._statusLabel === "завершён"),
+    [normalizedRows]
+  )
+
+  // ИСПРАВЛЕНИЕ BUG-02: Выделение работает строго по текущему отфильтрованному списку (filteredRows)
+  const toggle = (id: number) => setSelected((s) => ({ ...s, [id]: !s[id] }))
+
+  const selectAllFiltered = () => {
+    const next: Record<number, boolean> = {}
+    filteredRows.forEach((r) => {
+      next[r.id] = true
+    })
+    setSelected(next)
+  }
+
+  const clearAll = () => setSelected({})
+
+  // Учитываем только те выбранные строки, которые видны в текущем отфильтрованном списке
+  const selectedFilteredRows = useMemo(
+    () => filteredRows.filter((r) => !!selected[r.id]),
+    [filteredRows, selected]
+  )
+
+  const selectedIds = useMemo(
+    () => selectedFilteredRows.map((r) => r.id),
+    [selectedFilteredRows]
+  )
+
+  const selectedCompletedRows = useMemo(
+    () => selectedFilteredRows.filter((r) => r._statusLabel === "завершён"),
+    [selectedFilteredRows]
+  )
+
+  const isAllFilteredSelected =
+    filteredRows.length > 0 && selectedFilteredRows.length === filteredRows.length
+
+  const moveCampaignsToTrash = (campaignsToTrash: typeof normalizedRows) => {
+    const nowIso = new Date().toISOString()
+    const newItems: TrashCampaignItem[] = campaignsToTrash.map((r) => ({
+      trashId: `${r.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      originalId: r.id,
+      name: r.name,
+      client: r.client,
+      duration: r.duration,
+      status: r.status,
+      tkType: r.tkType || r._formatLabel,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      note: r.note || null,
+      isPaid: r._isPaid,
+      formatLabel: r._formatLabel,
+      typeLabel: r._typeLabel,
+      statusLabelAtDelete: r._statusLabel,
+      shoppingCenterNumbers: r._scNums,
+      tkListStr: r._tkListStr,
+      deletedAt: nowIso,
+    }))
+    updateTrash((prev) => [...newItems, ...prev])
+    setLastBatchTrashIds(newItems.map((i) => i.trashId))
+  }
+
+  const handleDelete = async (id: number) => {
+    const target = normalizedRows.find((r) => r.id === id)
+    if (!target) return
+    if (!window.confirm(`Удалить кампанию «${target.name}»? Она будет помещена в корзину на 30 дней.`)) return
+    try {
+      moveCampaignsToTrash([target])
+      const res = await fetch(getApiUrl(`/api/campaigns/${id}`), { method: "DELETE" })
+      if (!res.ok) throw new Error("Удаление не удалось")
+      setSelected((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      queryClient.invalidateQueries()
+    } catch (err) {
+      window.alert(String(err))
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedFilteredRows.length === 0) return
+    const completedPart = selectedCompletedRows.length
+    const msg =
+      filterStatus === "завершён"
+        ? `Удалить выделенные завершённые кампании (${selectedFilteredRows.length} шт.)? Они будут доступны в корзине 30 дней.`
+        : `Удалить выделенные в текущем списке кампании (${selectedFilteredRows.length} шт., из них завершённых: ${completedPart})? Они будут помещены в корзину на 30 дней.`
+
+    if (!window.confirm(msg)) return
+    try {
+      moveCampaignsToTrash(selectedFilteredRows)
+      const res = await fetch(getApiUrl("/api/campaigns/bulk-delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedIds }),
+      })
+      if (!res.ok) throw new Error("Ошибка массового удаления")
+      clearAll()
+      queryClient.invalidateQueries()
+    } catch (err) {
+      window.alert(String(err))
+    }
+  }
+
+  // Отдельная функция: Удалить ВСЕ завершённые кампании (и только их)
+  const handleDeleteAllCompleted = async () => {
+    const targetCompleted =
+      filterStatus === "завершён" && selectedCompletedRows.length > 0
+        ? selectedCompletedRows
+        : allCompletedRows
+
+    if (targetCompleted.length === 0) return
+    if (
+      !window.confirm(
+        `Удалить завершённые рекламные кампании (${targetCompleted.length} шт.)? Кампании в статусах «опубликовано» и «запланировано» затронуты НЕ будут. Удалённые кампании сохранятся в корзине на 30 дней.`
+      )
+    ) {
+      return
+    }
+    try {
+      moveCampaignsToTrash(targetCompleted)
+      const idsToDelete = targetCompleted.map((r) => r.id)
+      const res = await fetch(getApiUrl("/api/campaigns/bulk-delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: idsToDelete }),
+      })
+      if (!res.ok) throw new Error("Ошибка удаления завершённых кампаний")
+      clearAll()
+      queryClient.invalidateQueries()
+    } catch (err) {
+      window.alert(String(err))
+    }
+  }
+
+  // Восстановление кампаний из корзины обратно в базу данных
+  const restoreTrashItems = async (itemsToRestore: TrashCampaignItem[]) => {
+    if (itemsToRestore.length === 0 || isRestoring) return
+    setIsRestoring(true)
+    try {
+      const restoredTrashIds: string[] = []
+      for (const item of itemsToRestore) {
+        const payload = {
+          name: item.name,
+          client: item.client,
+          duration: Number(item.duration),
+          status: item.status || (item.isPaid ? "Платник" : "Не платник"),
+          tkType: item.tkType || item.formatLabel || "ГМ",
+          startDate: item.startDate,
+          endDate: item.endDate,
+          note: item.note ?? (item.isPaid ? "платный" : "не платный"),
+          shoppingCenterNumbers: item.shoppingCenterNumbers,
+        }
+        const res = await fetch(getApiUrl("/api/campaigns"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          restoredTrashIds.push(item.trashId)
+        }
+      }
+      const restoredSet = new Set(restoredTrashIds)
+      updateTrash((prev) => prev.filter((i) => !restoredSet.has(i.trashId)))
+      setLastBatchTrashIds((prev) => prev.filter((id) => !restoredSet.has(id)))
+      queryClient.invalidateQueries()
+    } catch (err) {
+      window.alert(`Ошибка при восстановлении: ${String(err)}`)
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
+  const handleUndoLastDelete = async () => {
+    const batchSet = new Set(lastBatchTrashIds)
+    const items = trashItems.filter((i) => batchSet.has(i.trashId))
+    await restoreTrashItems(items)
+  }
+
+  const handlePermanentDeleteTrashItem = (trashId: string) => {
+    if (!window.confirm("Удалить кампанию из корзины навсегда без возможности возврата?")) return
+    updateTrash((prev) => prev.filter((i) => i.trashId !== trashId))
+    setLastBatchTrashIds((prev) => prev.filter((id) => id !== trashId))
+  }
+
+  const handleEmptyTrash = () => {
+    if (trashItems.length === 0) return
+    if (!window.confirm(`Очистить корзину (${trashItems.length} шт.) навсегда?`)) return
+    updateTrash(() => [])
+    setLastBatchTrashIds([])
+  }
+
+  const handleDeleteBooking = async (id: number) => {
+    if (!window.confirm("Удалить эту бронь из очереди?")) return
+    try {
+      await fetch(getApiUrl(`/api/bookings/${id}`), { method: "DELETE" })
+      queryClient.invalidateQueries({ queryKey: ["bookings"] })
+    } catch (err) {
+      window.alert(String(err))
+    }
+  }
 
   const handleExportCsv = () => {
     const headers = [
@@ -295,6 +526,13 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
     )
   }
 
+  const getDaysRemainingInTrash = (deletedAtIso: string) => {
+    const deletedMs = new Date(deletedAtIso).getTime()
+    if (Number.isNaN(deletedMs)) return TRASH_RETENTION_DAYS
+    const elapsedDays = Math.floor((Date.now() - deletedMs) / (24 * 60 * 60 * 1000))
+    return Math.max(1, TRASH_RETENTION_DAYS - elapsedDays)
+  }
+
   return (
     <div className="space-y-2.5 text-[10.5px]">
       <EditCampaignDialog
@@ -304,6 +542,36 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
           if (!v) setEditingId(null)
         }}
       />
+
+      {/* Плашка мгновенной отмены удаления (Undo) */}
+      {lastBatchTrashIds.length > 0 && (
+        <div className="glass-panel rounded-2xl px-3.5 py-2 border border-amber-500/40 bg-amber-500/15 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-amber-900 dark:text-amber-200">
+            <ArchiveRestore className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              Удалено в корзину: <strong>{lastBatchTrashIds.length} РК</strong> (хранятся 30 дней).
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={handleUndoLastDelete}
+              disabled={isRestoring}
+              className="h-6 px-3 text-[10.5px] rounded-full bg-amber-600 hover:bg-amber-700 text-white font-semibold gap-1"
+            >
+              <RotateCcw className="w-3 h-3" />
+              {isRestoring ? "Восстановление..." : "Отменить удаление (Вернуть)"}
+            </Button>
+            <button
+              type="button"
+              onClick={() => setLastBatchTrashIds([])}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline"
+            >
+              Скрыть
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 1. Компактная стеклянная панель: Статистика за период + Фильтры */}
       <div className="glass-panel rounded-2xl px-3 py-2 space-y-2">
@@ -441,13 +709,22 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               <span className="text-muted-foreground">Статус:</span>
               <select
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value)
+                  setShowTrash(false)
+                }}
                 className="glass-pill rounded-full px-2 py-0 text-[10.5px] font-medium h-6 focus:outline-none"
               >
                 <option value="">Все ({normalizedRows.length})</option>
-                <option value="опубликовано">опубликовано</option>
-                <option value="запланировано">запланировано</option>
-                <option value="завершён">завершён</option>
+                <option value="опубликовано">
+                  опубликовано ({normalizedRows.filter((r) => r._statusLabel === "опубликовано").length})
+                </option>
+                <option value="запланировано">
+                  запланировано ({normalizedRows.filter((r) => r._statusLabel === "запланировано").length})
+                </option>
+                <option value="завершён">
+                  завершён ({allCompletedRows.length})
+                </option>
               </select>
             </div>
 
@@ -507,7 +784,63 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
             </label>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Счётчик выделенных кампаний и выделенных в статусе Завершён */}
+            <span className="px-2.5 py-0.5 rounded-full glass-pill text-[10px] text-muted-foreground">
+              Выбрано: <strong className="text-foreground">{selectedFilteredRows.length}</strong> из {filteredRows.length}
+              {selectedCompletedRows.length > 0 && (
+                <span className="ml-1 text-amber-700 dark:text-amber-400 font-semibold">
+                  (завершённых: {selectedCompletedRows.length})
+                </span>
+              )}
+            </span>
+
+            {/* Удаление выбранных в текущем фильтре */}
+            {selectedFilteredRows.length > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-6 px-2.5 text-[10px] rounded-full font-semibold"
+                onClick={handleBulkDelete}
+              >
+                Удалить выбранные ({selectedFilteredRows.length})
+              </Button>
+            )}
+
+            {/* Отдельная кнопка: Удалить все завершённые РК */}
+            {allCompletedRows.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDeleteAllCompleted}
+                className="h-6 px-2.5 text-[10px] gap-1 rounded-full border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 hover:bg-red-500/20 font-semibold"
+                title="Переместить все завершённые кампании в корзину на 30 дней"
+              >
+                <Trash2 className="w-3 h-3" />
+                Удалить все завершённые (
+                {filterStatus === "завершён" && selectedCompletedRows.length > 0
+                  ? selectedCompletedRows.length
+                  : allCompletedRows.length}
+                )
+              </Button>
+            )}
+
+            <button
+              type="button"
+              className="text-[10.5px] text-primary hover:underline font-medium px-1"
+              onClick={selectAllFiltered}
+            >
+              Выбрать всё ({filteredRows.length})
+            </button>
+            <button
+              type="button"
+              className="text-[10.5px] text-muted-foreground hover:text-foreground hover:underline px-1"
+              onClick={clearAll}
+            >
+              Сбросить
+            </button>
+
             <Button
               variant="outline"
               size="sm"
@@ -518,38 +851,154 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               Excel
             </Button>
 
-            <span className="text-[10.5px] text-muted-foreground">
-              Выбрано: <strong className="text-foreground">{selectedIds.length}</strong>
-            </span>
-
-            {selectedIds.length > 0 && (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-6 px-2.5 text-[10px] rounded-full"
-                onClick={handleBulkDelete}
-              >
-                Удалить ({selectedIds.length})
-              </Button>
-            )}
-
-            <button
+            {/* Кнопка Корзины (30 дней) */}
+            <Button
               type="button"
-              className="text-[10.5px] text-primary hover:underline font-medium"
-              onClick={selectAll}
+              variant={showTrash ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowTrash((v) => !v)}
+              className={cn(
+                "h-6 px-2.5 text-[10.5px] gap-1 rounded-full font-semibold",
+                !showTrash && "glass-pill"
+              )}
+              title="Корзина удалённых кампаний (хранение 30 дней)"
             >
-              Выбрать всё
-            </button>
-            <button
-              type="button"
-              className="text-[10.5px] text-muted-foreground hover:text-foreground hover:underline"
-              onClick={clearAll}
-            >
-              Сбросить
-            </button>
+              <ArchiveRestore className="w-3 h-3" />
+              Корзина ({trashItems.length})
+            </Button>
           </div>
         </div>
       </div>
+
+      {/* Модуль Корзины (хранение 30 дней с возможностью восстановления) */}
+      {showTrash && (
+        <div className="glass-panel rounded-2xl overflow-hidden border border-primary/40">
+          <div className="px-3.5 py-2 bg-primary/10 border-b border-black/[0.06] dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[11px] font-bold flex items-center gap-1.5 text-foreground">
+                <ArchiveRestore className="w-3.5 h-3.5 text-primary" />
+                Корзина удалённых кампаний ({trashItems.length}) — хранение 30 дней
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                При восстановлении кампания возвращается в базу со всеми своими ТК, датами и хронометражем
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {trashItems.length > 0 && (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => restoreTrashItems(trashItems)}
+                    disabled={isRestoring}
+                    className="h-6 px-2.5 text-[10px] rounded-full gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    {isRestoring ? "Восстановление..." : `Восстановить все (${trashItems.length})`}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleEmptyTrash}
+                    className="h-6 px-2.5 text-[10px] rounded-full"
+                  >
+                    Очистить корзину
+                  </Button>
+                </>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowTrash(false)}
+                className="h-6 px-2 text-[10px] rounded-full"
+              >
+                Закрыть
+              </Button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10.5px] border-collapse">
+              <thead className="border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
+                <tr>
+                  <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Название РК</th>
+                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Статус при удалении</th>
+                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Период показа</th>
+                  <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Заказчик</th>
+                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Хрон.</th>
+                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Формат / Тип</th>
+                  <th className="px-2.5 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
+                  <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">Хранение</th>
+                  <th className="px-2.5 py-1 text-right">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trashItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-muted-foreground">
+                      Корзина пуста. Удалённые кампании хранятся здесь в течение 30 дней.
+                    </td>
+                  </tr>
+                ) : (
+                  trashItems.map((item) => (
+                    <tr
+                      key={item.trashId}
+                      className="border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04]"
+                    >
+                      <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] font-semibold">
+                        {item.name}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
+                        {renderStatusBadge(item.statusLabelAtDelete, false)}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] font-mono text-[10px] whitespace-nowrap">
+                        {item.startDate} — {item.endDate}
+                      </td>
+                      <td className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06]">
+                        {item.client}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] font-mono font-bold text-primary">
+                        {item.duration} сек
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap">
+                        {item.formatLabel} • {item.typeLabel}
+                      </td>
+                      <td
+                        className="px-2.5 py-1 border-r border-black/[0.05] dark:border-white/[0.06] max-w-[220px] truncate"
+                        title={item.tkListStr}
+                      >
+                        <strong>{item.shoppingCenterNumbers.length} ТК:</strong> {item.tkListStr}
+                      </td>
+                      <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] whitespace-nowrap text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                        Осталось {getDaysRemainingInTrash(item.deletedAt)} дн.
+                      </td>
+                      <td className="px-2.5 py-1 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={isRestoring}
+                            onClick={() => restoreTrashItems([item])}
+                            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold hover:bg-emerald-500/25"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            Восстановить
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePermanentDeleteTrashItem(item.trashId)}
+                            className="text-[10px] text-red-600 hover:underline"
+                          >
+                            Навсегда
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* 2. Компактная очередь бронирования от коллег */}
       {evaluatedBookings.length > 0 && (
@@ -699,9 +1148,10 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
                 <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[32px]">
                   <input
                     type="checkbox"
-                    checked={rows.length > 0 && selectedIds.length === rows.length}
-                    onChange={(e) => (e.target.checked ? selectAll() : clearAll())}
+                    checked={isAllFilteredSelected}
+                    onChange={(e) => (e.target.checked ? selectAllFiltered() : clearAll())}
                     className="rounded scale-90"
+                    title="Выбрать все кампании в текущем отфильтрованном списке"
                   />
                 </th>
                 <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[38px]">#</th>
@@ -735,7 +1185,10 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               {filteredRows.map((r, idx) => (
                 <tr
                   key={r.id}
-                  className="border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04] transition-colors align-middle"
+                  className={cn(
+                    "border-b last:border-b-0 border-black/[0.05] dark:border-white/[0.06] hover:bg-white/50 dark:hover:bg-white/[0.04] transition-colors align-middle",
+                    selected[r.id] && "bg-primary/10 dark:bg-primary/15"
+                  )}
                 >
                   <td className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06]">
                     <input
