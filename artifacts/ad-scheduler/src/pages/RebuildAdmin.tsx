@@ -345,7 +345,6 @@ export function evaluateBookingsQueue(
   return evaluated
 }
 
-// Автоматическая подсветка активной кнопки навигации («Для коллег» vs «Админ») в шапке
 export function highlightActiveNavButton(activeTab: "colleagues" | "admin") {
   if (typeof document === "undefined") return
   const header = document.querySelector("header")
@@ -387,12 +386,10 @@ export function RebuildAdmin() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
-  // Выделяем кнопку «Экраны ТК (Для коллег)» в верхней навигации
   useEffect(() => {
     highlightActiveNavButton("colleagues")
   }, [])
 
-  // Состояние темы День / Ночь с сохранением в localStorage
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window === "undefined") return false
     const saved = localStorage.getItem("chrono-theme")
@@ -521,7 +518,6 @@ export function RebuildAdmin() {
     setBTkNumbers(MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number).join(", "))
   }
 
-  // При выборе формата НЕ заполняем поле «Список ТК» автоматически
   const handleBFormatChange = (v: string) => {
     setBFormat(v)
   }
@@ -1313,30 +1309,44 @@ export function RebuildAdmin() {
         </DialogContent>
       </Dialog>
 
-      {/* ЗАКРЕПЛЕННЫЙ ВЕРХНИЙ БЛОК ФИЛЬТРОВ И СВОДКИ (не прокручивается) */}
+      {/* ЗАКРЕПЛЕННЫЙ ВЕРХНИЙ БЛОК ФИЛЬТРОВ И СВОДКИ */}
       <div className="glass-header shrink-0 z-40">
         <div className="max-w-[1920px] mx-auto px-3 py-1 space-y-1">
           <div className="flex flex-wrap items-center justify-between gap-1.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <div className="inline-flex rounded-full bg-black/[0.05] dark:bg-white/[0.08] p-0.5 border border-white/60 dark:border-white/10">
-                {(["ALL", "ГМ", "СМ"] as const).map((fmt) => (
-                  <button
-                    key={fmt}
-                    onClick={() => setTkFormatFilter(fmt)}
-                    className={cn(
-                      "px-2 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
-                      tkFormatFilter === fmt
-                        ? "bg-primary text-white shadow-2xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {fmt === "ALL"
-                      ? `Все (${TOTAL_TK_COUNT})`
-                      : fmt === "ГМ"
-                      ? `ГМ (${TOTAL_GM_COUNT})`
-                      : `СМ (${TOTAL_SM_COUNT})`}
-                  </button>
-                ))}
+              {/* Кнопки фильтрации Все / ГМ / СМ */}
+              <div className="inline-flex items-center gap-1 bg-black/[0.04] dark:bg-white/[0.06] p-0.5 rounded-full border border-black/10 dark:border-white/10">
+                {(["ALL", "ГМ", "СМ"] as const).map((fmt) => {
+                  const isActive = tkFormatFilter === fmt
+                  return (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => setTkFormatFilter(fmt)}
+                      style={
+                        isActive
+                          ? {
+                              backgroundColor: "#007aff",
+                              color: "#ffffff",
+                              boxShadow: "0 2px 8px rgba(0, 122, 255, 0.35)",
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        "px-2.5 py-0.5 text-[10.5px] rounded-full transition-all",
+                        isActive
+                          ? "font-bold text-white"
+                          : "font-medium text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {fmt === "ALL"
+                        ? `Все (${TOTAL_TK_COUNT})`
+                        : fmt === "ГМ"
+                        ? `ГМ (${TOTAL_GM_COUNT})`
+                        : `СМ (${TOTAL_SM_COUNT})`}
+                    </button>
+                  )
+                })}
               </div>
 
               <select
@@ -1397,48 +1407,84 @@ export function RebuildAdmin() {
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 size="sm"
-                className="h-6 px-2.5 text-[10.5px] gap-1 bg-amber-500/90 hover:bg-amber-600 text-white font-semibold rounded-full shadow-xs"
+                className="h-6 px-3 text-[10.5px] gap-1 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-full shadow-sm"
                 onClick={() => setBookingDialogOpen(true)}
               >
                 <BookmarkPlus className="w-3 h-3" />
                 + Бронирование
               </Button>
 
-              <div className="inline-flex rounded-full bg-black/[0.05] dark:bg-white/[0.08] p-0.5 border border-white/60 dark:border-white/10">
+              {/* ОТДЕЛЬНЫЕ ВИЗУАЛЬНО ВЫДЕЛЕННЫЕ КНОПКИ РЕЖИМОВ: Список ТК | Матрица | Брони */}
+              <div className="inline-flex items-center gap-1.5">
                 <button
+                  type="button"
                   onClick={() => setViewMode("list")}
-                  className={cn(
-                    "flex items-center gap-1 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
+                  style={
                     viewMode === "list"
-                      ? "bg-primary text-white shadow-2xs"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? {
+                          backgroundColor: "#007aff",
+                          color: "#ffffff",
+                          borderColor: "#0062cc",
+                          boxShadow: "0 3px 10px rgba(0, 122, 255, 0.38)",
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    "flex items-center gap-1 h-6 px-3 text-[10.5px] rounded-full border transition-all",
+                    viewMode === "list"
+                      ? "font-bold text-white"
+                      : "glass-pill font-medium text-foreground/80 hover:text-foreground"
                   )}
                 >
-                  <ListFilter className="w-2.5 h-2.5" />
+                  <ListFilter className="w-3 h-3" />
                   Список ТК
                 </button>
+
                 <button
+                  type="button"
                   onClick={() => setViewMode("matrix")}
-                  className={cn(
-                    "flex items-center gap-1 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
+                  style={
                     viewMode === "matrix"
-                      ? "bg-primary text-white shadow-2xs"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? {
+                          backgroundColor: "#007aff",
+                          color: "#ffffff",
+                          borderColor: "#0062cc",
+                          boxShadow: "0 3px 10px rgba(0, 122, 255, 0.38)",
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    "flex items-center gap-1 h-6 px-3 text-[10.5px] rounded-full border transition-all",
+                    viewMode === "matrix"
+                      ? "font-bold text-white"
+                      : "glass-pill font-medium text-foreground/80 hover:text-foreground"
                   )}
                 >
-                  <LayoutGrid className="w-2.5 h-2.5" />
+                  <LayoutGrid className="w-3 h-3" />
                   Матрица
                 </button>
+
                 <button
+                  type="button"
                   onClick={() => setViewMode("bookings")}
-                  className={cn(
-                    "flex items-center gap-1 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
+                  style={
                     viewMode === "bookings"
-                      ? "bg-amber-500 text-white shadow-2xs"
-                      : "text-amber-700 dark:text-amber-400 hover:text-foreground"
+                      ? {
+                          backgroundColor: "#d97706",
+                          color: "#ffffff",
+                          borderColor: "#b45309",
+                          boxShadow: "0 3px 10px rgba(217, 119, 6, 0.4)",
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    "flex items-center gap-1 h-6 px-3 text-[10.5px] rounded-full border transition-all",
+                    viewMode === "bookings"
+                      ? "font-bold text-white"
+                      : "glass-pill font-semibold text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
                   )}
                 >
-                  <BookmarkCheck className="w-2.5 h-2.5" />
+                  <BookmarkCheck className="w-3 h-3" />
                   Брони ({evaluatedBookings.length})
                 </button>
               </div>
@@ -1605,7 +1651,7 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* ПРОКРУЧИВАЕМОЕ ОКНО С ДАННЫМИ (скроллится только таблица внутри) */}
+      {/* ПРОКРУЧИВАЕМОЕ ОКНО С ДАННЫМИ */}
       <div className="max-w-[1920px] w-full mx-auto px-3 py-2 flex-1 min-h-0 flex flex-col">
         {isLoading ? (
           <div className="p-6 text-center text-muted-foreground glass-panel rounded-2xl text-xs">
