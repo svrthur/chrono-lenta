@@ -1,6 +1,24 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
 @layer base {
   :root {
     --background: 220 30% 96%;
@@ -74,7 +92,7 @@
   background: transparent !important;
 }
 
-/* ИСПРАВЛЕНИЕ BUG-01: Плотная контрастная подложка для всех модальных окон (Загрузка данных, Редактирование, Бронь) */
+/* Плотная контрастная подложка для всех модальных окон */
 [role="dialog"],
 [data-radix-popper-content-wrapper] > div {
   background: rgba(255, 255, 255, 0.96) !important;
@@ -98,7 +116,6 @@
     0 0 0 1px rgba(255, 255, 255, 0.12) inset !important;
 }
 
-/* Поля ввода внутри модальных окон — четкие и контрастные */
 [role="dialog"] input,
 [role="dialog"] select,
 [role="dialog"] textarea,
@@ -117,7 +134,7 @@
   border: 1px solid rgba(255, 255, 255, 0.22) !important;
 }
 
-/* Полупрозрачное стекло Apple Liquid Glass для таблиц и панелей */
+/* Полупрозрачное стекло Apple Liquid Glass */
 .glass-panel,
 .bg-card {
   background: rgba(255, 255, 255, 0.56) !important;
@@ -194,7 +211,6 @@ input[type="search"] {
   color: #f4f4f6;
 }
 
-/* Таблицы */
 table {
   font-size: 11px !important;
 }
