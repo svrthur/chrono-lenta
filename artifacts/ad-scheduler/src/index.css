@@ -74,7 +74,50 @@
   background: transparent !important;
 }
 
-/* Полупрозрачное стекло Apple Liquid Glass (День / Ночь) */
+/* ИСПРАВЛЕНИЕ BUG-01: Плотная контрастная подложка для всех модальных окон (Загрузка данных, Редактирование, Бронь) */
+[role="dialog"],
+[data-radix-popper-content-wrapper] > div {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: #0f172a !important;
+  backdrop-filter: blur(32px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+  border-radius: 1.25rem !important;
+  box-shadow:
+    0 25px 60px -12px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.9) inset !important;
+}
+
+.dark [role="dialog"],
+.dark [data-radix-popper-content-wrapper] > div {
+  background: rgba(22, 26, 38, 0.96) !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow:
+    0 25px 60px -12px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.12) inset !important;
+}
+
+/* Поля ввода внутри модальных окон — четкие и контрастные */
+[role="dialog"] input,
+[role="dialog"] select,
+[role="dialog"] textarea,
+[role="dialog"] button[role="combobox"] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+.dark [role="dialog"] input,
+.dark [role="dialog"] select,
+.dark [role="dialog"] textarea,
+.dark [role="dialog"] button[role="combobox"] {
+  background: #111520 !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+
+/* Полупрозрачное стекло Apple Liquid Glass для таблиц и панелей */
 .glass-panel,
 .bg-card {
   background: rgba(255, 255, 255, 0.56) !important;
@@ -151,7 +194,7 @@ input[type="search"] {
   color: #f4f4f6;
 }
 
-/* Таблицы (День / Ночь) */
+/* Таблицы */
 table {
   font-size: 11px !important;
 }
@@ -177,7 +220,6 @@ tbody tr:hover {
   background-color: rgba(255, 255, 255, 0.06) !important;
 }
 
-/* Тонкий скроллбар macOS */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
