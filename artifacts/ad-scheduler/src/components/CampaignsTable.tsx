@@ -100,6 +100,77 @@ function saveTrashToStorage(items: TrashCampaignItem[]) {
   }
 }
 
+// Автоматическое выравнивание шапки «Админ: управление рекламными кампаниями» в одну строку,
+// уменьшение пустого пространства сверху и яркое выделение кнопки «+ Загрузка данных»
+function compactAdminHeaderLayout() {
+  if (typeof document === "undefined") return
+
+  // 1. Находим заголовок «Админ: управление рекламными кампаниями» и описание под ним
+  const headings = document.querySelectorAll("h1, h2, h3")
+  headings.forEach((h) => {
+    const text = (h.textContent || "").trim()
+    if (text.includes("Админ: управление рекламными кампаниями")) {
+      const headingEl = h as HTMLElement
+      headingEl.style.fontSize = "14px"
+      headingEl.style.fontWeight = "700"
+      headingEl.style.margin = "0"
+      headingEl.style.lineHeight = "1.2"
+      headingEl.style.whiteSpace = "nowrap"
+
+      const parentBox = headingEl.parentElement
+      if (parentBox) {
+        parentBox.style.display = "flex"
+        parentBox.style.flexWrap = "wrap"
+        parentBox.style.alignItems = "baseline"
+        parentBox.style.gap = "10px"
+        parentBox.style.margin = "0"
+
+        const subtitle = parentBox.querySelector("p") as HTMLElement | null
+        if (subtitle) {
+          subtitle.style.fontSize = "11px"
+          subtitle.style.margin = "0"
+          subtitle.style.lineHeight = "1.2"
+          subtitle.style.opacity = "0.8"
+        }
+
+        // Уменьшаем отступы у внешнего ряда-обертки, чтобы страница подтянулась вверх
+        const rowWrapper = parentBox.parentElement as HTMLElement | null
+        if (rowWrapper) {
+          rowWrapper.style.marginBottom = "6px"
+          rowWrapper.style.paddingTop = "2px"
+          rowWrapper.style.paddingBottom = "2px"
+          rowWrapper.style.alignItems = "center"
+        }
+
+        const pageContainer = rowWrapper?.parentElement as HTMLElement | null
+        if (pageContainer) {
+          pageContainer.style.paddingTop = "8px"
+          pageContainer.style.paddingBottom = "8px"
+        }
+      }
+    }
+  })
+
+  // 2. Ярко выделяем кнопку «+ Загрузка данных»
+  const buttons = document.querySelectorAll("button")
+  buttons.forEach((btn) => {
+    const btnText = (btn.textContent || "").trim()
+    if (btnText.includes("Загрузка данных") && !btnText.includes("Админ")) {
+      const btnEl = btn as HTMLElement
+      btnEl.style.backgroundColor = "#007aff"
+      btnEl.style.backgroundImage = "linear-gradient(135deg, #007aff 0%, #2563eb 100%)"
+      btnEl.style.color = "#ffffff"
+      btnEl.style.fontWeight = "700"
+      btnEl.style.fontSize = "11.5px"
+      btnEl.style.padding = "5px 16px"
+      btnEl.style.height = "30px"
+      btnEl.style.borderRadius = "9999px"
+      btnEl.style.border = "1px solid rgba(255, 255, 255, 0.4)"
+      btnEl.style.boxShadow = "0 4px 14px rgba(0, 122, 255, 0.38)"
+    }
+  })
+}
+
 const GM_NUMBERS_SET = new Set(
   MASTER_TK_LIST.filter((t) => t.format === "ГМ").map((t) => t.number)
 )
@@ -129,9 +200,10 @@ interface CampaignsTableProps {
 export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   const queryClient = useQueryClient()
 
-  // Выделяем кнопку «Админ (Загрузка данных)» в верхней навигации
+  // Выделяем кнопку «Админ (Загрузка данных)», выстраиваем заголовок в 1 линию и выделяем кнопку «+ Загрузка данных»
   useEffect(() => {
     highlightActiveNavButton("admin")
+    compactAdminHeaderLayout()
   }, [])
 
   const { data: rows = [], isLoading, isError, error, refetch } = useQuery<Campaign[]>({
@@ -537,7 +609,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
   }
 
   return (
-    <div className="h-[calc(100vh-125px)] overflow-hidden flex flex-col gap-2 text-[10.5px]">
+    <div className="h-[calc(100vh-92px)] overflow-hidden flex flex-col gap-1.5 text-[10.5px]">
       <EditCampaignDialog
         campaignId={editingId}
         open={!!editingId}
@@ -546,7 +618,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         }}
       />
 
-      {/* ЗАКРЕПЛЕННЫЕ ВЕРХНИЕ БЛОКИ (shrink-0 — остаются на месте) */}
+      {/* ЗАКРЕПЛЕННЫЕ ВЕРХНИЕ БЛОКИ */}
       {lastBatchTrashIds.length > 0 && (
         <div className="glass-panel shrink-0 rounded-2xl px-3.5 py-1.5 border border-amber-500/40 bg-amber-500/15 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[11px] font-medium text-amber-900 dark:text-amber-200">
@@ -577,8 +649,8 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
       )}
 
       {/* 1. Закрепленная стеклянная панель: Статистика за период + Фильтры */}
-      <div className="glass-panel shrink-0 rounded-2xl px-3 py-2 space-y-1.5">
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-black/[0.06] dark:border-white/[0.08]">
+      <div className="glass-panel shrink-0 rounded-2xl px-3 py-1.5 space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-black/[0.06] dark:border-white/[0.08]">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-semibold flex items-center gap-1 text-foreground text-[11px]">
               <BarChart3 className="w-3.5 h-3.5 text-primary" />
@@ -867,7 +939,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       </div>
 
-      {/* 2. Закрепленная очередь бронирования от коллег (компактная) */}
+      {/* 2. Закрепленная очередь бронирования от коллег */}
       {evaluatedBookings.length > 0 && !showTrash && (
         <div className="glass-panel shrink-0 rounded-2xl overflow-hidden border border-amber-500/35">
           <div className="px-3 py-1 bg-amber-500/10 border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between">
@@ -876,7 +948,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
               Очередь бронирования от коллег ({evaluatedBookings.length}):
             </div>
           </div>
-          <div className="max-h-28 overflow-auto">
+          <div className="max-h-24 overflow-auto">
             <table className="w-full text-[10.5px] border-collapse">
               <thead className="sticky top-0 z-10 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
                 <tr>
@@ -1006,7 +1078,7 @@ export function CampaignsTable({ onDuplicate }: CampaignsTableProps) {
         </div>
       )}
 
-      {/* 3. ПРОКРУЧИВАЕМОЕ ОКНО С ДАННЫМИ (Корзина ИЛИ основной реестр кампаний) */}
+      {/* 3. ПРОКРУЧИВАЕМОЕ ОКНО С ДАННЫМИ */}
       {showTrash ? (
         <div className="glass-panel rounded-2xl overflow-hidden border border-primary/40 flex-1 min-h-0 flex flex-col">
           <div className="px-3.5 py-2 shrink-0 bg-primary/10 border-b border-black/[0.06] dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-2">
