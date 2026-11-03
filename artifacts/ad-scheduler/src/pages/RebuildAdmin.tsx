@@ -345,9 +345,52 @@ export function evaluateBookingsQueue(
   return evaluated
 }
 
+// Автоматическая подсветка активной кнопки навигации («Для коллег» vs «Админ») в шапке
+export function highlightActiveNavButton(activeTab: "colleagues" | "admin") {
+  if (typeof document === "undefined") return
+  const header = document.querySelector("header")
+  if (!header) return
+  const elements = header.querySelectorAll("a, button")
+  elements.forEach((el) => {
+    const text = (el.textContent || "").toLowerCase()
+    const isColleaguesBtn = text.includes("экраны тк") || text.includes("для коллег")
+    const isAdminBtn = text.includes("админ") && text.includes("загрузка")
+
+    if (!isColleaguesBtn && !isAdminBtn) return
+
+    const isActive =
+      (activeTab === "colleagues" && isColleaguesBtn) ||
+      (activeTab === "admin" && isAdminBtn)
+
+    const htmlEl = el as HTMLElement
+    htmlEl.style.borderRadius = "9999px"
+    htmlEl.style.padding = "5px 14px"
+    htmlEl.style.transition = "all 0.2s ease"
+
+    if (isActive) {
+      htmlEl.style.backgroundColor = "#007aff"
+      htmlEl.style.color = "#ffffff"
+      htmlEl.style.fontWeight = "700"
+      htmlEl.style.boxShadow = "0 4px 12px rgba(0, 122, 255, 0.35)"
+      htmlEl.style.border = "1px solid rgba(255, 255, 255, 0.35)"
+    } else {
+      htmlEl.style.backgroundColor = "rgba(120, 120, 128, 0.12)"
+      htmlEl.style.color = ""
+      htmlEl.style.fontWeight = "500"
+      htmlEl.style.boxShadow = "none"
+      htmlEl.style.border = "1px solid transparent"
+    }
+  })
+}
+
 export function RebuildAdmin() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+
+  // Выделяем кнопку «Экраны ТК (Для коллег)» в верхней навигации
+  useEffect(() => {
+    highlightActiveNavButton("colleagues")
+  }, [])
 
   // Состояние темы День / Ночь с сохранением в localStorage
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -381,10 +424,6 @@ export function RebuildAdmin() {
 
   const [viewMode, setViewMode] = useState<"list" | "matrix" | "bookings">("list")
   const [bookingDialogOpen, setBookingDialogOpen] = useState<boolean>(false)
-
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" as any })
-  }, [viewMode])
 
   const [includeBookingsInTk, setIncludeBookingsInTk] = useState<boolean>(false)
   const [expandedTkSet, setExpandedTkSet] = useState<Set<string>>(new Set())
@@ -482,6 +521,7 @@ export function RebuildAdmin() {
     setBTkNumbers(MASTER_TK_LIST.filter((t) => t.format === fmt).map((t) => t.number).join(", "))
   }
 
+  // При выборе формата НЕ заполняем поле «Список ТК» автоматически
   const handleBFormatChange = (v: string) => {
     setBFormat(v)
   }
@@ -906,8 +946,8 @@ export function RebuildAdmin() {
   }
 
   return (
-    <div className="min-h-screen apple-spatial-bg flex flex-col pb-8 text-[10.5px]">
-      {/* Модальное окно бронирования в стиле iOS 27 Liquid Glass */}
+    <div className="h-[calc(100vh-49px)] overflow-hidden apple-spatial-bg flex flex-col text-[10.5px]">
+      {/* Модальное окно бронирования */}
       <Dialog open={bookingDialogOpen} onOpenChange={setBookingDialogOpen}>
         <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto glass-panel rounded-3xl border-white/70 shadow-2xl">
           <DialogHeader>
@@ -1273,8 +1313,8 @@ export function RebuildAdmin() {
         </DialogContent>
       </Dialog>
 
-      {/* Компактная полупрозрачная панель управления (macOS 27 Control Bar) */}
-      <div className="glass-header sticky top-[48px] z-40">
+      {/* ЗАКРЕПЛЕННЫЙ ВЕРХНИЙ БЛОК ФИЛЬТРОВ И СВОДКИ (не прокручивается) */}
+      <div className="glass-header shrink-0 z-40">
         <div className="max-w-[1920px] mx-auto px-3 py-1 space-y-1">
           <div className="flex flex-wrap items-center justify-between gap-1.5">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1286,7 +1326,7 @@ export function RebuildAdmin() {
                     className={cn(
                       "px-2 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
                       tkFormatFilter === fmt
-                        ? "bg-white dark:bg-zinc-800 text-foreground shadow-2xs"
+                        ? "bg-primary text-white shadow-2xs"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -1368,9 +1408,9 @@ export function RebuildAdmin() {
                 <button
                   onClick={() => setViewMode("list")}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-medium rounded-full transition-all",
+                    "flex items-center gap-1 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
                     viewMode === "list"
-                      ? "bg-white dark:bg-zinc-800 text-foreground shadow-2xs"
+                      ? "bg-primary text-white shadow-2xs"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -1380,9 +1420,9 @@ export function RebuildAdmin() {
                 <button
                   onClick={() => setViewMode("matrix")}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-medium rounded-full transition-all",
+                    "flex items-center gap-1 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
                     viewMode === "matrix"
-                      ? "bg-white dark:bg-zinc-800 text-foreground shadow-2xs"
+                      ? "bg-primary text-white shadow-2xs"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -1392,7 +1432,7 @@ export function RebuildAdmin() {
                 <button
                   onClick={() => setViewMode("bookings")}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
+                    "flex items-center gap-1 px-2.5 py-0.5 text-[10.5px] font-semibold rounded-full transition-all",
                     viewMode === "bookings"
                       ? "bg-amber-500 text-white shadow-2xs"
                       : "text-amber-700 dark:text-amber-400 hover:text-foreground"
@@ -1413,7 +1453,6 @@ export function RebuildAdmin() {
                 Excel
               </Button>
 
-              {/* Кнопка переключения режима День / Ночь */}
               <Button
                 type="button"
                 variant="outline"
@@ -1447,7 +1486,6 @@ export function RebuildAdmin() {
             </div>
           </div>
 
-          {/* Вторая строка: тонкие фильтры и однострочные индикаторы сводки */}
           <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-black/[0.05] dark:border-white/[0.07] text-[10px]">
             <div className="flex flex-wrap items-center gap-1.5">
               <div className="flex items-center gap-1">
@@ -1516,7 +1554,6 @@ export function RebuildAdmin() {
               </label>
             </div>
 
-            {/* Компактные однострочные капсулы статистики */}
             <div className="flex flex-wrap items-center gap-1.5">
               <div className="glass-pill rounded-full px-2.5 py-0.5 flex items-center gap-1">
                 <span className="text-muted-foreground">ТК:</span>
@@ -1568,21 +1605,19 @@ export function RebuildAdmin() {
         </div>
       </div>
 
-      {/* Основная таблица в полупрозрачной капсуле */}
-      <div className="max-w-[1920px] w-full mx-auto px-3 mt-1.5 flex-1">
+      {/* ПРОКРУЧИВАЕМОЕ ОКНО С ДАННЫМИ (скроллится только таблица внутри) */}
+      <div className="max-w-[1920px] w-full mx-auto px-3 py-2 flex-1 min-h-0 flex flex-col">
         {isLoading ? (
           <div className="p-6 text-center text-muted-foreground glass-panel rounded-2xl text-xs">
             Загрузка расписания...
           </div>
         ) : viewMode === "bookings" ? (
-          <div className="glass-panel rounded-2xl overflow-hidden">
-            <div className="px-3.5 py-2 border-b border-black/[0.06] dark:border-white/[0.08] bg-amber-500/10 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-[11px] font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
-                  <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" />
-                  Список бронирования (очередь по времени внесения: кто первым внёс — тот №1)
-                </h2>
-              </div>
+          <div className="glass-panel rounded-2xl overflow-hidden flex-1 min-h-0 flex flex-col">
+            <div className="px-3.5 py-2 border-b border-black/[0.06] dark:border-white/[0.08] bg-amber-500/10 shrink-0 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-[11px] font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                <BookmarkCheck className="w-3.5 h-3.5 text-amber-600" />
+                Список бронирования (очередь по времени внесения: кто первым внёс — тот №1)
+              </h2>
               <Button
                 size="sm"
                 className="h-6 text-[10.5px] bg-amber-500 hover:bg-amber-600 text-white gap-1 rounded-full shadow-2xs"
@@ -1593,23 +1628,23 @@ export function RebuildAdmin() {
               </Button>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-[10.5px] border-collapse">
-                <thead className="border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
+                <thead className="sticky top-0 z-20 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
                   <tr>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[62px]">Очередь</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[125px]">Дата внесения</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[160px]">Название РК</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[115px]">Фамилия</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[135px]">Даты показа</th>
-                    <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[65px]">Формат</th>
-                    <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[80px]">Тип</th>
-                    <th className="px-2 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[70px]">Хрон.</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[240px]">
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[62px]">Очередь</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[125px]">Дата внесения</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[160px]">Название РК</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[115px]">Фамилия</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[135px]">Даты показа</th>
+                    <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[65px]">Формат</th>
+                    <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[80px]">Тип</th>
+                    <th className="px-2 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[70px]">Хрон.</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[240px]">
                       Статус квоты (с учетом приоритета)
                     </th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
-                    <th className="px-2 py-1 text-center w-[70px]">Действия</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06]">Список ТК</th>
+                    <th className="px-2 py-1.5 text-center w-[70px]">Действия</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1739,28 +1774,28 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : viewMode === "list" ? (
-          <div className="glass-panel rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="glass-panel rounded-2xl overflow-hidden flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-[10.5px] border-collapse">
-                <thead className="border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground">
+                <thead className="sticky top-0 z-20 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] text-[10px] text-muted-foreground shadow-2xs">
                   <tr>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[46px]">№ ТК</th>
-                    <th className="px-1 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[42px]">Форм.</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[112px]">Город</th>
-                    <th className="px-2 py-1 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[185px]">Адрес</th>
-                    <th className="px-1.5 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[88px]">
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[46px]">№ ТК</th>
+                    <th className="px-1 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[42px]">Форм.</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[112px]">Город</th>
+                    <th className="px-2 py-1.5 text-left border-r border-black/[0.05] dark:border-white/[0.06] w-[185px]">Адрес</th>
+                    <th className="px-1.5 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[88px]">
                       Суммарно (≤{TK_QUOTAS.TOTAL_MAX}с)
                     </th>
-                    <th className="px-1.5 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[96px]">
+                    <th className="px-1.5 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[96px]">
                       Платно (≤{TK_QUOTAS.PAID_MAX}с)
                     </th>
-                    <th className="px-1.5 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[88px]">
+                    <th className="px-1.5 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[88px]">
                       Бесплатно (30%)
                     </th>
-                    <th className="px-1.5 py-1 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[82px]">
+                    <th className="px-1.5 py-1.5 text-center border-r border-black/[0.05] dark:border-white/[0.06] w-[82px]">
                       Освободится
                     </th>
-                    <th className="px-2 py-1 text-left">
+                    <th className="px-2 py-1.5 text-left">
                       <div className="flex items-center justify-between gap-2">
                         <span>
                           Рекламные кампании на {format(selectedDate, "dd.MM.yyyy")}
@@ -2082,12 +2117,12 @@ export function RebuildAdmin() {
             </div>
           </div>
         ) : (
-          <div className="glass-panel rounded-2xl overflow-hidden">
-            <div className="overflow-auto max-h-[75vh]">
+          <div className="glass-panel rounded-2xl overflow-hidden flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-[10.5px] border-collapse min-w-max">
-                <thead className="bg-white/65 dark:bg-zinc-900/65 backdrop-blur-xl sticky top-0 z-20">
+                <thead className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl sticky top-0 z-20">
                   <tr>
-                    <th className="px-2 py-1 text-left border-b border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl min-w-[240px]">
+                    <th className="px-2 py-1 text-left border-b border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl min-w-[240px]">
                       Кампания / Заказчик / Статус на {format(selectedDate, "dd.MM.yyyy")}
                     </th>
                     {filteredTkRows.map((tk) => (
@@ -2124,7 +2159,7 @@ export function RebuildAdmin() {
                       >
                         <td
                           className={cn(
-                            "px-2 py-0.5 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-l-3",
+                            "px-2 py-0.5 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-10 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border-l-3",
                             isPub && "border-l-emerald-600",
                             isPlan && "border-l-blue-600",
                             !isPub && !isPlan && "border-l-zinc-400"
@@ -2185,9 +2220,9 @@ export function RebuildAdmin() {
                   })}
                 </tbody>
 
-                <tfoot className="sticky bottom-0 z-20 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-t border-black/10 dark:border-white/15">
+                <tfoot className="sticky bottom-0 z-20 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-t border-black/10 dark:border-white/15">
                   <tr className="font-bold text-[10px]">
-                    <td className="px-2 py-1 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-xl">
+                    <td className="px-2 py-1 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl">
                       Суммарно в эфире (лимит {TK_QUOTAS.TOTAL_MAX}с)
                     </td>
                     {filteredTkRows.map((tk) => (
@@ -2205,7 +2240,7 @@ export function RebuildAdmin() {
                   </tr>
 
                   <tr className="text-[9px]">
-                    <td className="px-2 py-0.5 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-xl font-medium">
+                    <td className="px-2 py-0.5 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl font-medium">
                       Платно (лимит {TK_QUOTAS.PAID_MAX}с)
                     </td>
                     {filteredTkRows.map((tk) => (
@@ -2224,7 +2259,7 @@ export function RebuildAdmin() {
                   </tr>
 
                   <tr className="text-[9px]">
-                    <td className="px-2 py-0.5 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/85 dark:bg-zinc-900/85 backdrop-blur-xl font-medium">
+                    <td className="px-2 py-0.5 border-r border-black/[0.06] dark:border-white/[0.08] sticky left-0 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl font-medium">
                       Бесплатно (30%)
                     </td>
                     {filteredTkRows.map((tk) => (
