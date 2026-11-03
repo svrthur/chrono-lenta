@@ -943,59 +943,47 @@ export function RebuildAdmin() {
 
   return (
     <div className="h-[calc(100vh-49px)] overflow-hidden apple-spatial-bg flex flex-col text-[10.5px]">
-      {/* Модальное окно бронирования */}
+      {/* Модальное окно бронирования — точный визуальный стиль окна «Загрузка данных рекламной кампании» */}
       <Dialog open={bookingDialogOpen} onOpenChange={setBookingDialogOpen}>
-        <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto glass-panel rounded-3xl border-white/70 shadow-2xl">
+        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold tracking-tight">
+            <DialogTitle className="text-lg font-bold tracking-tight text-foreground">
               Бронирование эфирного времени
             </DialogTitle>
           </DialogHeader>
 
-          <div className="grid gap-2.5 py-1">
-            <div className="grid gap-1">
-              <Label className="text-[10.5px] font-medium text-muted-foreground">
-                Название РК <span className="text-destructive">*</span>
+          <div className="grid gap-3.5 py-2">
+            <div className="grid gap-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Название РК *
               </Label>
               <Input
-                placeholder="Введите название рекламной кампании"
+                placeholder="Введите название кампании"
                 value={bCampaignName}
                 onChange={(e) => setBCampaignName(e.target.value)}
-                className="h-7 text-[11px] rounded-xl glass-pill"
+                className="h-9 text-sm rounded-lg"
               />
             </div>
 
-            <div className="grid gap-1">
-              <Label className="text-[10.5px] font-medium text-muted-foreground">
-                Фамилия <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                placeholder="Введите вашу фамилию"
-                value={bSurname}
-                onChange={(e) => setBSurname(e.target.value)}
-                className="h-7 text-[11px] rounded-xl glass-pill"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div className="grid gap-1">
-                <Label className="text-[10.5px] font-medium text-muted-foreground">
-                  Дата старта показа <span className="text-destructive">*</span>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Дата старта *
                 </Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-7 text-[11px] justify-start text-left font-normal rounded-xl glass-pill",
+                        "h-9 text-sm justify-start text-left font-normal rounded-lg bg-white dark:bg-zinc-900 border-slate-300 dark:border-white/20",
                         !bStartDate && "text-muted-foreground"
                       )}
                     >
-                      <CalendarIcon className="mr-1.5 h-3 w-3 text-primary" />
+                      <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
                       {bStartDate ? format(bStartDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 rounded-2xl glass-panel shadow-xl" align="start">
+                  <PopoverContent className="w-auto p-0 rounded-2xl shadow-xl" align="start">
                     <Calendar
                       mode="single"
                       selected={bStartDate}
@@ -1006,24 +994,24 @@ export function RebuildAdmin() {
                 </Popover>
               </div>
 
-              <div className="grid gap-1">
-                <Label className="text-[10.5px] font-medium text-muted-foreground">
-                  Дата окончания показа <span className="text-destructive">*</span>
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Дата окончания *
                 </Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-7 text-[11px] justify-start text-left font-normal rounded-xl glass-pill",
+                        "h-9 text-sm justify-start text-left font-normal rounded-lg bg-white dark:bg-zinc-900 border-slate-300 dark:border-white/20",
                         !bEndDate && "text-muted-foreground"
                       )}
                     >
-                      <CalendarIcon className="mr-1.5 h-3 w-3 text-primary" />
+                      <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
                       {bEndDate ? format(bEndDate, "dd.MM.yyyy", { locale: ru }) : "Выбрать дату"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 rounded-2xl glass-panel shadow-xl" align="start">
+                  <PopoverContent className="w-auto p-0 rounded-2xl shadow-xl" align="start">
                     <Calendar
                       mode="single"
                       selected={bEndDate}
@@ -1036,18 +1024,48 @@ export function RebuildAdmin() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div className="grid gap-1">
-                <Label className="text-[10.5px] font-medium text-muted-foreground">
-                  Формат <span className="text-destructive">*</span>
+            <div className="grid gap-1.5">
+              <Label className="text-xs font-semibold text-foreground">
+                Фамилия *
+              </Label>
+              <Input
+                placeholder="Введите вашу фамилию"
+                value={bSurname}
+                onChange={(e) => setBSurname(e.target.value)}
+                className="h-9 text-sm rounded-lg"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Длительность *
                 </Label>
-                <Select value={bFormat} onValueChange={handleBFormatChange}>
-                  <SelectTrigger className="h-7 text-[11px] rounded-xl glass-pill">
+                <Select value={bDuration} onValueChange={setBDuration}>
+                  <SelectTrigger className="h-9 text-sm rounded-lg">
                     <SelectValue placeholder="Выбрать" />
                   </SelectTrigger>
-                  <SelectContent className="rounded-2xl glass-panel">
+                  <SelectContent className="rounded-xl">
+                    {LOCAL_DURATION_OPTIONS.map((sec) => (
+                      <SelectItem key={sec} value={String(sec)} className="text-xs">
+                        {sec} сек
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Формат *
+                </Label>
+                <Select value={bFormat} onValueChange={handleBFormatChange}>
+                  <SelectTrigger className="h-9 text-sm rounded-lg">
+                    <SelectValue placeholder="Выбрать" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
                     {LOCAL_FORMAT_OPTIONS.map((fmt) => (
-                      <SelectItem key={fmt} value={fmt} className="text-[11px]">
+                      <SelectItem key={fmt} value={fmt} className="text-xs">
                         {fmt}
                       </SelectItem>
                     ))}
@@ -1055,46 +1073,28 @@ export function RebuildAdmin() {
                 </Select>
               </div>
 
-              <div className="grid gap-1">
-                <Label className="text-[10.5px] font-medium text-muted-foreground">
-                  Тип <span className="text-destructive">*</span>
+              <div className="grid gap-1.5">
+                <Label className="text-xs font-semibold text-foreground">
+                  Тип *
                 </Label>
                 <Select value={bPayerType} onValueChange={setBPayerType}>
-                  <SelectTrigger className="h-7 text-[11px] rounded-xl glass-pill">
+                  <SelectTrigger className="h-9 text-sm rounded-lg">
                     <SelectValue placeholder="Выбрать" />
                   </SelectTrigger>
-                  <SelectContent className="rounded-2xl glass-panel">
-                    <SelectItem value="платная" className="text-[11px]">платная</SelectItem>
-                    <SelectItem value="бесплатная" className="text-[11px]">бесплатная</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-1">
-                <Label className="text-[10.5px] font-medium text-muted-foreground">
-                  Хронометраж <span className="text-destructive">*</span>
-                </Label>
-                <Select value={bDuration} onValueChange={setBDuration}>
-                  <SelectTrigger className="h-7 text-[11px] rounded-xl glass-pill">
-                    <SelectValue placeholder="Выбрать" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl glass-panel">
-                    {LOCAL_DURATION_OPTIONS.map((sec) => (
-                      <SelectItem key={sec} value={String(sec)} className="text-[11px]">
-                        {sec} сек
-                      </SelectItem>
-                    ))}
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="платная" className="text-xs">платная</SelectItem>
+                    <SelectItem value="бесплатная" className="text-xs">бесплатная</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            <div className="grid gap-1">
+            <div className="grid gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-1">
-                <Label className="text-[10.5px] font-medium text-muted-foreground">
-                  Список ТК ({bSelectedSet.size} выбр.) <span className="text-destructive">*</span>
+                <Label className="text-xs font-semibold text-foreground">
+                  Список ТК ({bSelectedSet.size} выбр.) *
                 </Label>
-                <div className="flex items-center gap-1.5 text-[10.5px]">
+                <div className="flex items-center gap-1.5 text-xs">
                   <button
                     type="button"
                     onClick={() => fillBTkByFormat("ГМ")}
@@ -1130,19 +1130,19 @@ export function RebuildAdmin() {
               </div>
 
               <Input
-                placeholder="Номера ТК через запятую (например: 2, 3, 15)"
+                placeholder="Например: 2, 3, 15, 104"
                 value={bTkNumbers}
                 onChange={(e) => setBTkNumbers(e.target.value)}
                 className={cn(
-                  "h-7 text-[11px] rounded-xl glass-pill",
+                  "h-9 text-sm rounded-lg",
                   bParsedTk.unknownNumbers.length > 0 && "border-destructive"
                 )}
               />
 
               {bParsedTk.unknownNumbers.length > 0 && (
-                <div className="p-2 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400 text-[10.5px] flex items-center justify-between gap-2">
+                <div className="p-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400 text-xs flex items-center justify-between gap-2">
                   <div className="flex items-start gap-1.5">
-                    <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-500" />
+                    <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
                     <div>
                       <strong>Чужие ТК (нет в базе):</strong> №{bParsedTk.unknownNumbers.join(", №")}
                     </div>
@@ -1151,7 +1151,7 @@ export function RebuildAdmin() {
                     type="button"
                     variant="destructive"
                     size="sm"
-                    className="h-6 px-2 text-[10px] rounded-lg"
+                    className="h-7 px-2.5 text-xs rounded-md"
                     onClick={removeUnknownBTks}
                   >
                     Удалить
@@ -1160,29 +1160,29 @@ export function RebuildAdmin() {
               )}
 
               <div className="flex items-center justify-between pt-0.5">
-                <p className="text-[9.5px] text-muted-foreground">
-                  Укажите номера вручную или выберите ниже
+                <p className="text-[11px] text-muted-foreground">
+                  Номера через запятую или выберите города/ТК ниже
                 </p>
                 <button
                   type="button"
                   onClick={() => setBShowPicker((v) => !v)}
-                  className="text-[10.5px] text-primary font-medium flex items-center gap-1 hover:underline"
+                  className="text-xs text-primary font-medium flex items-center gap-1 hover:underline"
                 >
                   {bShowPicker ? (
                     <>
-                      Скрыть подбор <ChevronUp className="w-3 h-3" />
+                      Скрыть подбор <ChevronUp className="w-3.5 h-3.5" />
                     </>
                   ) : (
                     <>
-                      Выбрать по городам / адресам <ChevronDown className="w-3 h-3" />
+                      Подобрать по городам / адресам <ChevronDown className="w-3.5 h-3.5" />
                     </>
                   )}
                 </button>
               </div>
 
               {bShowPicker && (
-                <div className="rounded-2xl p-2 glass-pill space-y-1.5">
-                  <div className="text-[9.5px] font-semibold text-muted-foreground">
+                <div className="rounded-lg border border-slate-200 dark:border-white/15 p-2.5 bg-slate-50/70 dark:bg-black/25 space-y-2">
+                  <div className="text-[11px] font-semibold text-muted-foreground">
                     Быстрый выбор по городам (ГМ / СМ):
                   </div>
                   <div className="flex flex-wrap gap-1">
@@ -1192,16 +1192,16 @@ export function RebuildAdmin() {
                       return (
                         <div
                           key={city}
-                          className="inline-flex rounded-lg border border-black/10 dark:border-white/10 bg-white/60 dark:bg-black/30 overflow-hidden text-[9.5px]"
+                          className="inline-flex rounded-md border border-slate-200 dark:border-white/15 bg-white dark:bg-zinc-900 overflow-hidden text-[10px]"
                         >
-                          <span className="px-1.5 py-0.5 font-semibold text-foreground bg-black/[0.04] dark:bg-white/[0.05] border-r border-black/10 dark:border-white/10">
+                          <span className="px-1.5 py-0.5 font-semibold text-foreground bg-slate-100 dark:bg-white/10 border-r border-slate-200 dark:border-white/15">
                             {city}
                           </span>
                           {hasGm && (
                             <button
                               type="button"
                               onClick={() => toggleCityFormatTks(city, "ГМ")}
-                              className="px-1.5 py-0.5 hover:bg-primary/15 text-primary font-medium border-r border-black/10 dark:border-white/10"
+                              className="px-1.5 py-0.5 hover:bg-primary/15 text-primary font-medium border-r border-slate-200 dark:border-white/15"
                             >
                               + ГМ
                             </button>
@@ -1224,14 +1224,14 @@ export function RebuildAdmin() {
                     placeholder="Поиск по номеру или адресу..."
                     value={bPickerSearch}
                     onChange={(e) => setBPickerSearch(e.target.value)}
-                    className="h-6 text-[10.5px] rounded-xl bg-white/50 dark:bg-black/30"
+                    className="h-8 text-xs rounded-md"
                   />
 
-                  <div className="max-h-28 overflow-y-auto rounded-xl border border-black/10 dark:border-white/10 bg-white/40 dark:bg-black/25 p-1 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
+                  <div className="max-h-32 overflow-y-auto rounded-md border border-slate-200 dark:border-white/15 bg-white dark:bg-zinc-900 p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-0.5">
                     {bFilteredMasterList.map((tk) => (
                       <label
                         key={tk.number}
-                        className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-lg hover:bg-black/[0.05] dark:hover:bg-white/[0.06] cursor-pointer"
+                        className="flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -1240,7 +1240,7 @@ export function RebuildAdmin() {
                           className="rounded"
                         />
                         <span className="font-bold">№{tk.number}</span>
-                        <span className="text-[9px] px-1 rounded bg-black/[0.06] dark:bg-white/[0.1]">
+                        <span className="text-[9.5px] px-1 rounded bg-slate-100 dark:bg-white/10">
                           {tk.format}
                         </span>
                         <span className="truncate text-muted-foreground" title={`${tk.city}, ${tk.address}`}>
@@ -1254,12 +1254,12 @@ export function RebuildAdmin() {
             </div>
 
             {draftRedConflicts.length > 0 && (
-              <div className="p-2 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400 text-[10.5px] space-y-0.5">
-                <div className="font-bold flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-500" />
+              <div className="p-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400 text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
                   Критический перегруз в {draftRedConflicts.length} ТК!
                 </div>
-                <div className="max-h-16 overflow-y-auto space-y-0.5 text-[10px]">
+                <div className="max-h-20 overflow-y-auto space-y-0.5 text-[11px]">
                   {draftRedConflicts.map((c) => (
                     <div key={c.tkNumber}>
                       • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: {c.reason}
@@ -1270,12 +1270,12 @@ export function RebuildAdmin() {
             )}
 
             {draftOrangeConflicts.length > 0 && (
-              <div className="p-2 rounded-2xl border border-orange-500/30 bg-orange-500/15 text-orange-700 dark:text-orange-300 text-[10.5px] space-y-0.5">
-                <div className="font-bold flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-orange-500" />
+              <div className="p-2.5 rounded-lg border border-orange-500/30 bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-orange-500" />
                   Оранжевое предупреждение в {draftOrangeConflicts.length} ТК (остаток 10–20с)!
                 </div>
-                <div className="max-h-16 overflow-y-auto space-y-0.5 text-[10px]">
+                <div className="max-h-20 overflow-y-auto space-y-0.5 text-[11px]">
                   {draftOrangeConflicts.map((c) => (
                     <div key={c.tkNumber}>
                       • <strong>ТК №{c.tkNumber}</strong> ({c.city}) на {c.peakDate}: {c.reason}
@@ -1286,23 +1286,22 @@ export function RebuildAdmin() {
             )}
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-2 pt-2">
             <Button
               variant="outline"
-              size="sm"
               onClick={() => setBookingDialogOpen(false)}
               disabled={bSaving}
-              className="rounded-full h-7 px-3.5 text-[11px] glass-pill"
+              className="rounded-lg h-9 px-4 text-sm font-medium bg-white dark:bg-zinc-900 border-slate-300 dark:border-white/20"
             >
               Отмена
             </Button>
             <Button
-              size="sm"
               onClick={handleSaveBooking}
               disabled={bSaving}
-              className="rounded-full h-7 px-3.5 text-[11px] shadow-md shadow-primary/25"
+              style={{ backgroundColor: "#007aff", color: "#ffffff" }}
+              className="rounded-lg h-9 px-4 text-sm font-semibold hover:opacity-95 shadow-sm"
             >
-              <CheckIcon className="w-3 h-3 mr-1" />
+              <CheckIcon className="w-4 h-4 mr-1.5" />
               {bSaving ? "Сохранение..." : "Забронировать"}
             </Button>
           </DialogFooter>
@@ -1383,7 +1382,7 @@ export function RebuildAdmin() {
                       {format(selectedDate, "dd.MM.yyyy", { locale: ru })}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 rounded-2xl glass-panel shadow-xl" align="start">
+                  <PopoverContent className="w-auto p-0 rounded-2xl shadow-xl" align="start">
                     <Calendar
                       mode="single"
                       selected={selectedDate}
