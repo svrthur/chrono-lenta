@@ -84,13 +84,14 @@
 | :--- | :--- |
 | **Frontend** | React 19, TypeScript, Vite 7, Tailwind CSS v4, Radix UI (`shadcn/ui`), TanStack React Query v5, Zustand, Wouter, `date-fns`, Lucide Icons |
 | **Backend** | Node.js, Express, TypeScript, REST API |
-| **База данных** | Serverless PostgreSQL 18 (Neon), Drizzle ORM |
-| **Сборка и CI/CD** | `pnpm` (v10.x), GitHub Actions (`pages.yml`), Netlify, Render |
+| **База данных** | PostgreSQL (Supabase, Session Pooler IPv4, 24/7), Drizzle ORM |
+| **Сборка, DNS и CI/CD** | `pnpm` (v10.x), ClouDNS, Netlify, GitHub Pages, GitHub Actions (`pages.yml`, `keep-alive.yml`), Render |
 
 ```text
 chrono-lenta/
 ├── .github/workflows/
-│   └── pages.yml                  # CI/CD пайплайн сборки статики (/assets/*) на GitHub Pages
+│   ├── pages.yml                  # CI/CD пайплайн сборки статики (/assets/*) на GitHub Pages
+│   └── keep-alive.yml             # Cron-планировщик пробуждения API в рабочие часы (вместо UptimeRobot)
 ├── artifacts/
 │   ├── ad-scheduler/              # Клиентское SPA-приложение (React + TypeScript + Tailwind CSS v4)
 │   │   ├── public/                # Статические файлы (favicon.svg, robots.txt)
@@ -118,7 +119,7 @@ chrono-lenta/
 
 ## Схема Production-инфраструктуры (Работа в РФ без VPN)
 
-Для бесперебойной работы приложения в сетях российских операторов связи (обход блокировок доменов `*.vercel.app`, фильтрации TLS ECH на `*.onrender.com` и шейпинга трафика по лимиту 16 КБ на IP-адресах AWS) используется распределённая гибридная схема из 5 бесплатных сервисов:
+Для бесперебойной работы приложения в сетях российских операторов связи (обход блокировок доменов `*.vercel.app`, фильтрации TLS ECH на `*.onrender.com` и шейпинга трафика по лимиту 16 КБ на IP-адресах AWS) используется распределённая гибридная схема из 5 бесплатных сервисов без лимитов по часам работы базы данных:
 
 ```text
 [Клиент (Браузер / Мобильная сеть РФ без VPN)]
@@ -133,21 +134,21 @@ chrono-lenta/
        └── 4. Запросы к БД (/api/* < 5 КБ) ────► Netlify Reverse Proxy (netlify.toml)
                                                         │
                                                         ▼
-                                                 Render (chrono-lenta.onrender.com)
+                                                 Render (chrono-lenta-api.onrender.com)
                                                         │
                                                         ▼
-                                                 Neon Serverless PostgreSQL 18 (AWS US East 2)
+                                                 Supabase PostgreSQL (24/7, EU West / Session Pooler)
 ```
 
 ### Роли задействованных сервисов
 
 1. **ClouDNS (`chrono-lenta.abrdns.com`):** бесплатный DNS-хостинг. Содержит `A`-запись, указывающую на балансировщик Netlify (`75.2.60.5`).
 2. **Netlify (`app.netlify.com`):** принимает входящее HTTPS-соединение по пользовательскому домену, выпускает SSL-сертификат Let's Encrypt, отдаёт легковесный `index.html` (`1.4 KB`) и проксирует запросы `/api/*` к бэкенду на Render.
-3. **GitHub Pages (`svrthur.github.io/chrono-lenta`):** раздаёт скомпилированные файлы стилей (`index-*.css`) и скриптов (`index-*.js`) из папки `/assets/`, так как сеть GitHub не подвержена ограничению ТСПУ в 16 КБ.
-4. **Render (`chrono-lenta.onrender.com`):** хостинг серверного приложения (`artifacts/api-server`). Обрабатывает бизнес-логику и запросы к БД.
-5. **Neon (`console.neon.tech`):** облачная СУБД PostgreSQL 18 (ветка `production`, регион `AWS US East 2 (Ohio)`).
+3. **GitHub Pages & Actions (`svrthur/chrono-lenta`):** раздаёт скомпилированные файлы стилей (`index-*.css`) и скриптов (`index-*.js`) из папки `/assets/` без ограничения ТСПУ в 16 КБ, а также выполняет фоновый keep-alive пинг бэкенда в рабочие часы по будням.
+4. **Render (`chrono-lenta-api.onrender.com`):** хостинг серверного приложения (`artifacts/api-server`). Обрабатывает бизнес-логику и запросы к БД.
+5. **Supabase (`supabase.com`):** постоянная облачная СУБД PostgreSQL (регион `EU West`, подключение через IPv4 Session Pooler). Работает 24/7 без месячных ограничений по Compute-часам (`CU-hrs`).
 
-> **Примечание:** Проект на платформе **Vercel** полностью отключён во избежание дублирования сборок.
+> **Примечание:** Проекты на платформах **Vercel**, **Neon** и **UptimeRobot** полностью отключены и удалены для упрощения архитектуры и исключения рисков превышения квот.
 
 ---
 
